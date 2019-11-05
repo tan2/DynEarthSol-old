@@ -206,7 +206,7 @@ namespace {
 
 void phase_changes_init(const Param& param, Variables& var)
 {
-    PhaseChange *phch = nullptr;
+    PhaseChange *phch = NULL;
     if (param.mat.nmat == 1 || param.mat.phase_change_option == 0) return;
 
     MarkerSet& ms = *(var.markersets[0]);
@@ -231,7 +231,7 @@ void phase_changes_init(const Param& param, Variables& var)
 
 void phase_changes(const Param& param, Variables& var)
 {
-    if (var.phch == nullptr) return;  // no phase change
+    if (var.phch == NULL) return;  // no phase change
 
     PhaseChange& phch = *var.phch;
     MarkerSet& ms = *(var.markersets[0]);
