@@ -86,9 +86,9 @@ bool is_bottom(uint flag)
     return flag & BOUNDZ0;
 }
 
-bool is_x1(uint flag)
+bool is_x0(uint flag)
 {
-    return flag & BOUNDX1;
+    return flag & BOUNDX0;
 }
 
 bool is_corner(uint flag)
@@ -143,21 +143,21 @@ void flatten_bottom(const uint_vec &old_bcflag, double *qcoord,
 }
 
 void flatten_x0(const uint_vec &old_bcflag, double *qcoord, double bx0, 
-                    double x1x, int_vec &points_to_delete, double min_dist)
+                    double x0x, int_vec &points_to_delete, double min_dist)
 {
     // find old nodes that are on or close to the x0 boundary
 
     for (std::size_t i=0; i<old_bcflag.size(); ++i) {
         uint flag = old_bcflag[i];
-        if (is_x1(flag)) {
+        if (is_x0(flag)) {
             // restore edge nodes to x1
-            qcoord[i*NDIMS] = x1x;
+            qcoord[i*NDIMS] = x0x;
             if (is_bottom(flag)) {
                 qcoord[i*NDIMS + NDIMS-1] = bx0; // + 100.;
-                std::cout << "x1x: " << x1x << "; bx0: "<<bx0<< '\n';
+                //std::cout << "x0x: " << x0x << "; bx0: "<<bx0<< '\n';
             }
         }
-        else if ((x1x - qcoord[i*NDIMS] < 500.)  &&
+        else if ((x0x - qcoord[i*NDIMS] < 500.)  &&
                  (qcoord[i*NDIMS + NDIMS-1] - (bx0 + 1000.) < 500.)) {
             points_to_delete.push_back(i);
             //std::cerr << "node: "  << i << '\n';
@@ -960,14 +960,14 @@ void new_mesh(const Param &param, Variables &var, int bad_quality,
         old_bnodes[i] = var.bnodes[i];  // copying whole vector
     }
 
-    // for cutting x0 boundary to x1
-    double x1x, bx0;
+    // for cutting boundary x0
+    double x0x, bx0;
     
     int j=0;
     while (j>-1) {
         uint flag = old_bcflag[j];
-        if ((flag & BOUNDX1 ) && (flag & BOUNDZ1)) {
-            x1x = qcoord[j*NDIMS]; break;
+        if ((flag & BOUNDX0 ) && (flag & BOUNDZ1)) {
+            x0x = qcoord[j*NDIMS]; break;
         }
         j++;
     }
@@ -985,7 +985,7 @@ void new_mesh(const Param &param, Variables &var, int bad_quality,
         j++;
     } while (l<2);
 
-    bx0 = bo_depth[0] + (bo_depth[1]-bo_depth[0])*(x1x-bo_X[0])/(bo_X[1]-bo_X[0]);
+    bx0 = bo_depth[0] + (bo_depth[1]-bo_depth[0])*(x0x-bo_X[0])/(bo_X[1]-bo_X[0]);
 
     bool (*excl_func)(uint) = NULL; // function pointer indicating which point cannot be deleted
     switch (param.mesh.remeshing_option) {
@@ -1026,7 +1026,7 @@ void new_mesh(const Param &param, Variables &var, int bad_quality,
                    points_to_delete, min_dist, qsegment, qsegflag, old_nseg);
         break;
     case 12:
-        flatten_x0(old_bcflag, qcoord, bx0, x1x, 
+        flatten_x0(old_bcflag, qcoord, bx0, x0x, 
                        points_to_delete, min_dist);
         break;
     }
@@ -1234,7 +1234,7 @@ void optimize_mesh(const Param &param, Variables &var, int bad_quality,
                        points_to_delete, min_dist);
         break;
     case 12:
-        flatten_x0(old_bcflag, qcoord, bx0, x1x,
+        flatten_x0(old_bcflag, qcoord, bx0, x0x,
                    points_to_delete, min_dist);
         break;
     default:

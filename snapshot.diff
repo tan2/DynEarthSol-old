@@ -1,5 +1,5 @@
 Flags used to compile the code:
    CXX=g++ opt=2 openmp=1
-   PATH=/usr/lib64/qt-3.3/bin:/opt/octave/bin:/cluster/intel/composer_xe_2013.1.117/bin/intel64:/cluster/intel/composer_xe_2013.1.117/mpirt/bin/intel64:/usr/local/bin:/bin:/usr/bin:/usr/local/sbin:/usr/sbin:/sbin:/cluster/mpich2/bin:/cluster/pbspro/bin:/home/fyilee/pro/dynearthsol3d_vE:/home/fyilee/2018-Geodynamics/flac/util:/home/fyilee/bin:/home/tan2/opt/bin:/home/fyilee/lib/BLAS-3.7.1
-   LD_LIBRARY_PATH=/opt/octave/lib/octave/4.0.3:/cluster/intel/composer_xe_2013.1.117/compiler/lib/intel64:/opt/intel/mic/coi/host-linux-release/lib:/opt/intel/mic/myo/lib:/cluster/intel/composer_xe_2013.1.117/mpirt/lib/intel64:/cluster/intel/composer_xe_2013.1.117/ipp/../compiler/lib/intel64:/cluster/intel/composer_xe_2013.1.117/ipp/lib/intel64:/cluster/intel/composer_xe_2013.1.117/compiler/lib/intel64:/cluster/intel/composer_xe_2013.1.117/mkl/lib/intel64:/cluster/intel/composer_xe_2013.1.117/tbb/lib/intel64:/cluster/intel/mkl/lib/intel64:/cluster/intel/lib/intel64
+   PATH=/usr/lib64/qt-3.3/bin:/usr/local/bin:/usr/bin:/usr/local/sbin:/usr/sbin:/opt/pbs/bin:/home/fyilee/.local/bin:/home/fyilee/bin
+   LD_LIBRARY_PATH=
 'hg' is not in path, cannot take code snapshot.

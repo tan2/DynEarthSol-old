@@ -219,7 +219,13 @@ void apply_vbcs(const Param &param, const Variables &var, array_t &vel)
 #endif
                 break;
             case 3:
-                v[0] = bc.vbc_val_x0;
+                //v[0] = bc.vbc_val_x0;
+                if (x[NDIMS-1]>miy+1.e3) {
+                    v[0] = bc.vbc_val_x0;
+                }
+                else {
+                    v[0] = bc.vbc_val_x0 * (x[NDIMS-1] - miy ) * 1e-3;
+                }
                 v[1] = 0;
 #ifdef THREED
                 v[2] = 0;
@@ -256,12 +262,7 @@ void apply_vbcs(const Param &param, const Variables &var, array_t &vel)
 #endif
                 break;
             case 3:
-                if (x[NDIMS-1]>miy+1.e3) {
-                    v[0] = bc.vbc_val_x1;
-                }
-                else {
-                    v[0] = bc.vbc_val_x0 * (x[NDIMS-1] - miy ) * 1e-3;
-                }
+                v[0] = bc.vbc_val_x1;
                 v[1] = 0;
 #ifdef THREED
                 v[2] = 0;
