@@ -1,6 +1,7 @@
 #ifndef DYNEARTHSOL3D_GEOMETRY_HPP
 #define DYNEARTHSOL3D_GEOMETRY_HPP
 
+#pragma routine seq
 double dist2(const double* a, const double* b);
 void compute_volume(const double **coord, double &volume);
 void compute_volume(const array_t &coord, const conn_t &connectivity,
@@ -25,6 +26,7 @@ void compute_mass(const Param &param, const Variables &var,
 void compute_shape_fn(const Variables &var, shapefn &shpdx,
                       shapefn &shpdy, shapefn &shpdz);
 
+#pragma routine seq
 double elem_quality(const array_t &coord, const conn_t &connectivity,
                     const double_vec &volume, int e);
 

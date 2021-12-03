@@ -642,12 +642,16 @@ double elem_quality(const array_t &coord, const conn_t &connectivity,
 double worst_elem_quality(const array_t &coord, const conn_t &connectivity,
                           const double_vec &volume, int &worst_elem)
 {
+    const std::size_t volume_size = volume.size();
     double q = 1;
     worst_elem = 0;
-    for (std::size_t e=0; e<volume.size(); e++) {
+    #pragma acc parallel loop
+    for (std::size_t e=0; e<volume_size; e++) {
         double quality = elem_quality(coord, connectivity, volume, e);
         if (quality < q) {
+	    #pragma acc atomic write
             q = quality;
+	    #pragma acc atomic write
             worst_elem = e;
         }
     }
