@@ -88,18 +88,21 @@ const double sizefactor = 0.433;
 const int DELETED_FACET = -1;
 const int DEBUG = 0;
 
+#pragma acc routine seq
 bool is_boundary(uint flag)
 {
     return flag & BOUND_ANY;
 }
 
 
+#pragma acc routine seq
 bool is_bottom(uint flag)
 {
     return flag & BOUNDZ0;
 }
 
 
+#pragma acc routine seq
 bool is_corner(uint flag)
 {
     uint f = flag & BOUND_ANY;
@@ -120,6 +123,7 @@ bool is_corner(uint flag)
 }
 
 
+#pragma acc routine seq
 bool is_bottom_corner(uint flag)
 {
     if ((flag & BOUNDZ0) && is_corner(flag)) return 1;
@@ -1973,15 +1977,24 @@ int bad_mesh_quality(const Param &param, const Variables &var, int &index)
 
     // check tiny elements
     const double smallest_vol = param.mesh.smallest_size * sizefactor * std::pow(param.mesh.resolution, NDIMS);
-    for (int e=0; e<var.nelem; e++) {
-        if ((*var.volume)[e] < smallest_vol) {
+    const double var_nelem = var.nelem;
+    const double_vec& volume = *var.volume;
+    bool is_too_small = false;
+    #pragma acc parallel loop
+    for (int e=0; e<var_nelem; e++) {
+        if (volume[e] < smallest_vol) {
+	    #pragma acc atomic write
             index = e;
-            std::cout << "    The size of element #" << index << " is too small.\n";
+	    #pragma acc atomic write
+	    is_too_small = true;
+	}
+    }
+    if (is_too_small) {
+        std::cout << "    The size of element #" << index << " is too small.\n";
 #ifdef USE_NPROF
-            nvtxRangePop();
+        nvtxRangePop();
 #endif
-            return 3;
-        }
+        return 3;
     }
 
     // check if any bottom node is too far away from the bottom depth
@@ -1990,19 +2003,28 @@ int bad_mesh_quality(const Param &param, const Variables &var, int &index)
         param.mesh.remeshing_option == 11) {
         double bottom = - param.mesh.zlength;
         const double dist = param.mesh.max_boundary_distortion * param.mesh.resolution;
-        for (int i=0; i<var.nnode; ++i) {
-            if (is_bottom((*var.bcflag)[i])) {
-                double z = (*var.coord)[i][NDIMS-1];
+	const double var_nnode = var.nnode;
+	const uint_vec *var_bcflag = var.bcflag;
+	const array_t *var_coord = var.coord;
+	bool is_too_far = false;
+        for (int i=0; i<var_nnode; ++i) {
+            if (is_bottom((*var_bcflag)[i])) {
+                double z = (*var_coord)[i][NDIMS-1];
                 if (std::fabs(z - bottom) > dist) {
+		    #pragma acc atomic write
                     index = i;
-                    std::cout << "    Node #" << i << " is too far from the bottm: z = " << z << "\n";
-#ifdef USE_NPROF
-                    nvtxRangePop();
-#endif
-                    return 2;
+		    #pragma acc atomic write
+		    is_too_far = true;
                 }
             }
         }
+	if (is_too_far) {
+            std::cout << "    Node #" << index << " is too far from the bottm: z = " << (*var.coord)[index][NDIMS-1] << "\n";
+#ifdef USE_NPROF
+            nvtxRangePop();
+#endif
+            return 2;
+	}
     }
 
     // check element distortion
