@@ -1,5 +1,8 @@
 #include <cmath>
 #include <iostream>
+#ifdef USE_NPROF
+#include <nvToolsExt.h>
+#endif
 
 #include "3x3-C/dsyevh3.h"
 
@@ -9,7 +12,7 @@
 #include "rheology.hpp"
 #include "utils.hpp"
 
-
+#pragma acc routine seq
 static void principal_stresses3(const double* s, double p[3], double v[3][3])
 {
     /* s is a flattened stress vector, with the components {XX, YY, ZZ, XY, XZ, YZ}.
@@ -67,7 +70,7 @@ static void principal_stresses3(const double* s, double p[3], double v[3][3])
     }
 }
 
-
+#pragma acc routine seq
 static void principal_stresses2(const double* s, double p[2],
                                 double& cos2t, double& sin2t)
 {
@@ -101,7 +104,7 @@ static void principal_stresses2(const double* s, double p[2],
     }
 }
 
-
+#pragma acc routine seq
 static void elastic(double bulkm, double shearm, const double* de, double* s)
 {
     /* increment the stress s according to the incremental strain de */
@@ -114,7 +117,7 @@ static void elastic(double bulkm, double shearm, const double* de, double* s)
         s[i] += 2 * shearm * de[i];
 }
 
-
+#pragma acc routine seq
 static void maxwell(double bulkm, double shearm, double viscosity, double dt,
                     double dv, const double* de, double* s)
 {
@@ -134,6 +137,7 @@ static void maxwell(double bulkm, double shearm, double viscosity, double dt,
 }
 
 
+#pragma acc routine seq
 static void viscous(double bulkm, double viscosity, double total_dv,
                     const double* edot, double* s)
 {
@@ -147,7 +151,7 @@ static void viscous(double bulkm, double viscosity, double total_dv,
         s[i] = 2 * viscosity * edot[i];
 }
 
-
+#pragma acc routine seq
 static void elasto_plastic(double bulkm, double shearm,
                            double amc, double anphi, double anpsi,
                            double hardn, double ten_max,
@@ -298,7 +302,7 @@ static void elasto_plastic(double bulkm, double shearm,
     }
 }
 
-
+#pragma acc routine seq
 static void elasto_plastic2d(double bulkm, double shearm,
                              double amc, double anphi, double anpsi,
                              double hardn, double ten_max,
@@ -507,79 +511,98 @@ static void elasto_plastic2d(double bulkm, double shearm,
 }
 
 
-void update_stress(const Variables& var, tensor_t& stress,
-                   double_vec& stressyy, double_vec& dpressure,
+void update_stress(const Param& param, const Variables& var, tensor_t& stress,
+                   double_vec& stressyy, double_vec& dpressure, double_vec& viscosity,
                    tensor_t& strain, double_vec& plstrain,
                    double_vec& delta_plstrain, tensor_t& strain_rate)
 {
-    const int rheol_type = var.mat->rheol_type;
+#ifdef USE_NPROF
+    nvtxRangePushA(__FUNCTION__);
+#endif
+//    const int rheol_type = var.mat->rheol_type;
+    const int rheol_type = param.mat.rheol_type;
 
+    const int var_nelem = var.nelem;
+    const double_vec *var_edvoldt = var.edvoldt;
+    const double var_dt = var.dt;
+    const MatProps *var_mat = var.mat;
+    const double_vec *var_volume = var.volume;
+    const double_vec *var_volume_old = var.volume_old;
+    const bool is_using_mixed_stress = param.control.is_using_mixed_stress;
+
+#ifdef LLVM
     #pragma omp parallel for default(none)                           \
-        shared(var, stress, stressyy, dpressure, strain, plstrain, delta_plstrain, \
-               strain_rate, rheol_type, std::cerr)
-    for (int e=0; e<var.nelem; ++e) {
+        shared(param, var, stress, stressyy, dpressure, viscosity, strain, plstrain, delta_plstrain, \
+               strain_rate, std::cerr, rheol_type)
+#else
+    #pragma omp parallel for default(none)                           \
+        shared(param, var, stress, stressyy, dpressure, viscosity, strain, plstrain, delta_plstrain, \
+               strain_rate, std::cerr, var_edvoldt, var_mat, var_volume,var_volume_old)
+#endif
+    #pragma acc parallel loop
+    for (int e=0; e<var_nelem; ++e) {
         // stress, strain and strain_rate of this element
         double* s = stress[e];
         double& syy = stressyy[e];
         double* es = strain[e];
         double* edot = strain_rate[e];
-	double old_s = trace(s);
+    	double old_s = trace(s);
 
         // anti-mesh locking correction on strain rate
         if(1){
             double div = trace(edot);
             //double div2 = ((*var.volume)[e] / (*var.volume_old)[e] - 1) / var.dt;
             for (int i=0; i<NDIMS; ++i) {
-                edot[i] += ((*var.edvoldt)[e] - div) / NDIMS;  // XXX: should NDIMS -> 3 in plane strain?
+                edot[i] += ((*var_edvoldt)[e] - div) / NDIMS;  // XXX: should NDIMS -> 3 in plane strain?
             }
         }
 
         // update strain with strain rate
         for (int i=0; i<NSTR; ++i) {
-            es[i] += edot[i] * var.dt;
+            es[i] += edot[i] * var_dt;
         }
 
         // modified strain increment
         double de[NSTR];
         for (int i=0; i<NSTR; ++i) {
-            de[i] = edot[i] * var.dt;
+            de[i] = edot[i] * var_dt;
         }
 
         switch (rheol_type) {
         case MatProps::rh_elastic:
             {
-                double bulkm = var.mat->bulkm(e);
-                double shearm = var.mat->shearm(e);
+                double bulkm = var_mat->bulkm(e);
+                double shearm = var_mat->shearm(e);
                 elastic(bulkm, shearm, de, s);
             }
             break;
         case MatProps::rh_viscous:
             {
-                double bulkm = var.mat->bulkm(e);
-                double viscosity = var.mat->visc(e);
+                double bulkm = var_mat->bulkm(e);
+                viscosity[e] = var_mat->visc(e);
                 double total_dv = trace(es);
-                viscous(bulkm, viscosity, total_dv, edot, s);
+                viscous(bulkm, viscosity[e], total_dv, edot, s);
             }
             break;
         case MatProps::rh_maxwell:
             {
-                double bulkm = var.mat->bulkm(e);
-                double shearm = var.mat->shearm(e);
-                double viscosity = var.mat->visc(e);
-                double dv = (*var.volume)[e] / (*var.volume_old)[e] - 1;
-                maxwell(bulkm, shearm, viscosity, var.dt, dv, de, s);
+                double bulkm = var_mat->bulkm(e);
+                double shearm = var_mat->shearm(e);
+                viscosity[e] = var_mat->visc(e);
+                double dv = (*var_volume)[e] / (*var_volume_old)[e] - 1;
+                maxwell(bulkm, shearm, viscosity[e], var_dt, dv, de, s);
             }
             break;
         case MatProps::rh_ep:
             {
                 double depls = 0;
-                double bulkm = var.mat->bulkm(e);
-                double shearm = var.mat->shearm(e);
+                double bulkm = var_mat->bulkm(e);
+                double shearm = var_mat->shearm(e);
                 double amc, anphi, anpsi, hardn, ten_max;
-                var.mat->plastic_props(e, plstrain[e],
+                var_mat->plastic_props(e, plstrain[e],
                                        amc, anphi, anpsi, hardn, ten_max);
                 int failure_mode;
-                if (var.mat->is_plane_strain) {
+                if (var_mat->is_plane_strain) {
                     elasto_plastic2d(bulkm, shearm, amc, anphi, anpsi, hardn, ten_max,
                                      de, depls, s, syy, failure_mode);
                 }
@@ -594,24 +617,24 @@ void update_stress(const Variables& var, tensor_t& stress,
         case MatProps::rh_evp:
             {
                 double depls = 0;
-                double bulkm = var.mat->bulkm(e);
-                double shearm = var.mat->shearm(e);
-                double viscosity = var.mat->visc(e);
-                double dv = (*var.volume)[e] / (*var.volume_old)[e] - 1;
+                double bulkm = var_mat->bulkm(e);
+                double shearm = var_mat->shearm(e);
+                viscosity[e] = var_mat->visc(e);
+                double dv = (*var_volume)[e] / (*var_volume_old)[e] - 1;
                 // stress due to maxwell rheology
                 double sv[NSTR];
                 for (int i=0; i<NSTR; ++i) sv[i] = s[i];
-                maxwell(bulkm, shearm, viscosity, var.dt, dv, de, sv);
+                maxwell(bulkm, shearm, viscosity[e], var_dt, dv, de, sv);
                 double svII = second_invariant2(sv);
 
                 double amc, anphi, anpsi, hardn, ten_max;
-                var.mat->plastic_props(e, plstrain[e],
+                var_mat->plastic_props(e, plstrain[e],
                                        amc, anphi, anpsi, hardn, ten_max);
                 // stress due to elasto-plastic rheology
                 double sp[NSTR], spyy;
                 for (int i=0; i<NSTR; ++i) sp[i] = s[i];
                 int failure_mode;
-                if (var.mat->is_plane_strain) {
+                if (var_mat->is_plane_strain) {
                     spyy = syy;
                     elasto_plastic2d(bulkm, shearm, amc, anphi, anpsi, hardn, ten_max,
                                      de, depls, sp, spyy, failure_mode);
@@ -634,13 +657,18 @@ void update_stress(const Variables& var, tensor_t& stress,
             }
             break;
         default:
-            std::cerr << "Error: unknown rheology type: " << rheol_type << "\n";
-            std::exit(1);
+//            std::cerr << "Error: unknown rheology type: " << rheol_type << "\n";
+//            std::exit(1);
             break;
         }
-	dpressure[e] = trace(s) - old_s;
+        if (is_using_mixed_stress)
+            dpressure[e] = trace(s) - old_s;
         // std::cerr << "stress " << e << ": ";
         // print(std::cerr, s, NSTR);
         // std::cerr << '\n';
     }
+#ifdef USE_NPROF
+    nvtxRangePop();
+#endif
 }
+

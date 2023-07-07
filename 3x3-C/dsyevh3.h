@@ -19,6 +19,7 @@
 #ifndef __DSYEVH3_H
 #define __DSYEVH3_H
 
+#pragma acc routine seq
 int dsyevh3(double A[3][3], double Q[3][3], double w[3]);
 
 #endif

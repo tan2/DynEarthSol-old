@@ -4,6 +4,9 @@
 #include <iostream>
 #include <numeric>
 #include <unordered_map>
+#ifdef USE_NPROF
+#include <nvToolsExt.h> 
+#endif
 
 #include "constants.hpp"
 #include "parameters.hpp"
@@ -274,15 +277,15 @@ void assemble_bdry_polygons(const Variables &var, const array_t &old_coord,
     const int edgenodes[edges_per_facet][nodes_per_edge] = { {1, 2}, {2, 0}, {0, 1} };
 
     for (int ibound=0; ibound<nbdrytypes; ibound++) {
-        if (var.bnodes[ibound].size() == 0) continue;  // skip empty boundary
+        if (var.bnodes[ibound]->size() == 0) continue;  // skip empty boundary
 
         //
         // Collecting edges on each boundary.
         //
 
         std::unordered_map<edge_t, int, hash1, equal_to1> edges;
-        for (std::size_t i=0; i<var.bfacets[ibound].size(); i++) {
-            const auto &facet = var.bfacets[ibound][i];
+        for (std::size_t i=0; i<var.bfacets[ibound]->size(); i++) {
+            const auto &facet = (*(var.bfacets[ibound]))[i];
             int e = facet.first;
             int f = facet.second;
             const int *conn = old_connectivity[e];
@@ -618,7 +621,7 @@ void delete_points_and_merge_facets(const int_vec &points_to_delete,
                                     const int_vec (&bnodes)[nbdrytypes],
                                     const int_vec (&bdry_polygons)[nbdrytypes],
                                     const int_vec (&bdrynode_deleting)[nbdrytypes],
-                                    const double (&bnormals)[nbdrytypes][NDIMS],
+                                    const array_t &bnormals,
                                     int &npoints,
                                     int &nseg, double *points,
                                     int *segment, int *segflag,
@@ -848,7 +851,7 @@ void delete_points_and_merge_facets(const int_vec &points_to_delete,
 void delete_points_on_boundary(int_vec &points_to_delete,
                                const int_vec (&bnodes)[nbdrytypes],
                                const int_vec (&bdry_polygons)[nbdrytypes],
-                               const double (&bnormals)[nbdrytypes][NDIMS],
+                               const array_t &bnormals,
                                int &npoints,
                                int &nseg, double *points,
                                int *segment, int *segflag,
@@ -908,10 +911,78 @@ void delete_points_on_boundary(int_vec &points_to_delete,
 }
 
 
+void refine_surface_elem(const Param &param, const Variables &var,
+                         const array_t &old_coord, const conn_t &old_connectivity,
+                         const double_vec &old_volume, int &old_nnode, double *qcoord)
+{
+#ifdef USE_NPROF
+    nvtxRangePushA(__FUNCTION__);
+#endif
+    const double surface_vol = param.mesh.sediment_size * sizefactor * std::pow(param.mesh.resolution, NDIMS);
+
+    std::cout << "    Checking surface element volume.\n";
+
+//    #pragma omp parallel for default(none) shared(param, var, old_coord, old_connectivity, old_volume, old_nnode, qcoord)
+
+    for (size_t i=0; i<(*var.surfinfo.top_facet_elems).size(); i++) {
+        int e = (*var.surfinfo.top_facet_elems)[i];
+
+        int_vec &a = (*var.elemmarkers)[e];
+        if (a[param.mat.mattype_sed] == 0) continue;
+//        int mat = std::distance(a.begin(), std::max_element(a.begin(), a.end()));
+//        if (mat != param.mat.mattype_sed) continue;
+
+        if (old_volume[e] < surface_vol) continue;
+
+        const int *conn = old_connectivity[e];
+        int_vec n(NDIMS);
+
+//        if (DEBUG)
+            std::printf("      Surface node added (%4d %.1e %.1e)\n",e, old_volume[e], surface_vol);
+        // get the nodes of the element on surface
+        for (int j=0; j<NDIMS; j++)
+            n[j] = (*var.surfinfo.top_nodes)[(*var.surfinfo.elem_and_nodes)[i][j]];
+
+        int nsub_node = -1;
+        for (int j=0;j<NODES_PER_ELEM; j++)
+            if (std::find(n.begin(),n.end(),conn[j]) == n.end()) {
+                nsub_node = conn[j];
+                break;
+            }
+
+        if (nsub_node >= 0) {
+            // for nodes on surface
+            for (int j=0; j<NDIMS; j++) {
+                double mcoord[NDIMS]    ;
+
+                for (int d=0;d<NDIMS; d++) {
+                    mcoord[d] = old_coord[ n[j] ][d];
+                    mcoord[d] += old_coord[nsub_node][d];
+                    mcoord[d] /= 2.;
+                }
+
+//                #pragma omp critical(refine_surface_elem)
+                {
+                    for (int d=0;d<NDIMS; d++)
+                        qcoord[old_nnode*NDIMS + d] = mcoord[d];
+                    old_nnode++;
+                }
+            }
+        }
+    }
+#ifdef USE_NPROF
+    nvtxRangePop();
+#endif
+}
+
+
 void new_mesh(const Param &param, Variables &var, int bad_quality,
               const array_t &original_coord, const conn_t &original_connectivity,
               const segment_t &original_segment, const segflag_t &original_segflag)
 {
+#ifdef USE_NPROF
+    nvtxRangePushA(__FUNCTION__);
+#endif
     int_vec bdry_polygons[nbdrytypes];
     assemble_bdry_polygons(var, original_coord, original_connectivity, bdry_polygons);
 
@@ -937,7 +1008,7 @@ void new_mesh(const Param &param, Variables &var, int bad_quality,
     uint_vec old_bcflag(*var.bcflag);
     int_vec old_bnodes[nbdrytypes];
     for (int i=0; i<nbdrytypes; ++i) {
-        old_bnodes[i] = var.bnodes[i];  // copying whole vector
+        old_bnodes[i] = *(var.bnodes[i]);  // copying whole vector
     }
 
     bool (*excl_func)(uint) = NULL; // function pointer indicating which point cannot be deleted
@@ -1009,12 +1080,23 @@ void new_mesh(const Param &param, Variables &var, int bad_quality,
     case 10:
     case 11:
         // deleting points, some of them might be on the boundary
-        delete_points_on_boundary(points_to_delete, old_bnodes, bdry_polygons, var.bnormals,
+        delete_points_on_boundary(points_to_delete, old_bnodes, bdry_polygons, *var.bnormals,
                                   old_nnode, old_nseg,
                                   qcoord, qsegment, qsegflag, old_bcflag, min_dist);
         break;
     }
 
+    // refine surface element where volume is too large
+#ifdef THREED
+    // todo
+#else
+    if (param.mesh.meshing_sediment) {
+        double *nqcoord = new double[(old_nnode + var.surfinfo.top_nodes->size() * 2 ) * NDIMS];
+        std::memcpy(nqcoord, qcoord, sizeof(double) * old_nnode * NDIMS);
+        qcoord = nqcoord;
+        refine_surface_elem(param, var, old_coord, old_connectivity, old_volume, old_nnode, qcoord);
+    }
+#endif
     int new_nnode, new_nelem, new_nseg;
     double *pcoord, *pregattr;
     int *pconnectivity, *psegment, *psegflag;
@@ -1028,8 +1110,8 @@ void new_mesh(const Param &param, Variables &var, int bad_quality,
             // lessen the quality constraint so that less new points got inserted to the mesh
             // and less chance of having tiny elements
             mesh.min_angle *= 0.9;
-            mesh.max_ratio *= 0.9;
-            mesh.min_tet_angle *= 1.1;
+            mesh.max_ratio *= 1.1;
+            mesh.min_tet_angle *= 0.9;
         }
 #ifdef THREED
         if (nloops != 0 && bad_quality == 1) {
@@ -1105,9 +1187,16 @@ void new_mesh(const Param &param, Variables &var, int bad_quality,
     var.connectivity->reset(pconnectivity, new_nelem);
     var.segment->reset(psegment, var.nseg);
     var.segflag->reset(psegflag, var.nseg);
+
+    if (param.mesh.meshing_sediment)
+        delete [] qcoord;
+#ifdef USE_NPROF
+    nvtxRangePop();
+#endif
+
 }
 
-void compute_metric_field(const Variables &var, const conn_t &connectivity, const double resolution, double_vec &metric)
+void compute_metric_field(const Variables &var, const conn_t &connectivity, const double resolution, double_vec &metric, double_vec &tmp_result_sg)
 {
     /* dvoldt is the volumetric strain rate, weighted by the element volume,
      * lumped onto the nodes.
@@ -1116,35 +1205,24 @@ void compute_metric_field(const Variables &var, const conn_t &connectivity, cons
     const double_vec& volume_n = *var.volume_n;
     std::fill_n(metric.begin(), var.nnode, 0);
 
-    class ElemFunc_metric : public ElemFunc
-    {
-    private:
-        const Variables &var;
-        const double_vec &volume;
-        const conn_t &connectivity;
-        const double resolution;
-        double_vec &metric;
-    public:
-        ElemFunc_metric(const Variables &var, const double_vec &volume, const conn_t &connectivity, const double resolution, double_vec &metric) :
-            var(var), volume(volume), connectivity(connectivity), resolution(resolution), metric(metric) {};
-        void operator()(int e)
-        {
-            const int *conn = connectivity[e];
-            double plstrain = resolution/(1.0+5.0*(*var.plstrain)[e]);
-            // resolution/(1.0+(*var.plstrain)[e]);
-            for (int i=0; i<NODES_PER_ELEM; ++i) {
-                int n = conn[i];
-                metric[n] += plstrain * volume[e];
-            }
-        }
-    } elemf(var, volume, connectivity, resolution, metric);
+#ifdef LLVM
+    #pragma omp parallel for default(none) shared(resolution,var,volume,connectivity,tmp_result_sg)
+#else
+    #pragma omp parallel for default(none) shared(var,volume,connectivity,tmp_result_sg)
+#endif
+    for (int e=0;e<var.nelem;e++) {
+        const int *conn = connectivity[e];
+        double plstrain = resolution/(1.0+5.0*(*var.plstrain)[e]);
+        // resolution/(1.0+(*var.plstrain)[e]);
+        tmp_result_sg[e] = plstrain * volume[e];
+    }
 
-    loop_all_elem(var.egroups, elemf);
-
-    #pragma omp parallel for default(none)      \
-        shared(var, metric, volume_n)
-    for (int n=0; n<var.nnode; ++n)
-         metric[n] /= volume_n[n];
+    #pragma omp parallel for default(none) shared(var,metric,tmp_result_sg,volume_n)
+    for (int n=0;n<var.nnode;n++) {
+        for( auto e = (*var.support)[n].begin(); e < (*var.support)[n].end(); ++e)
+            metric[n] += tmp_result_sg[*e];
+        metric[n] /= volume_n[n];
+    }
 }
 
 #ifdef USEMMG
@@ -1189,7 +1267,7 @@ void optimize_mesh(const Param &param, Variables &var, int bad_quality,
     uint_vec old_bcflag(*var.bcflag);
     int_vec old_bnodes[nbdrytypes];
     for (int i=0; i<nbdrytypes; ++i) {
-        old_bnodes[i] = var.bnodes[i];
+        old_bnodes[i] = *(var.bnodes[i]);
     }
 
     int_vec points_to_delete;
@@ -1268,7 +1346,7 @@ void optimize_mesh(const Param &param, Variables &var, int bad_quality,
     if( MMG3D_Set_solSize(mmgMesh, mmgSol, MMG5_Vertex, old_nnode, MMG5_Scalar) != 1 )
         exit(EXIT_FAILURE);
     //   b) give solutions values and positions
-    compute_metric_field(var, old_connectivity, param.mesh.resolution, *var.ntmp);
+    compute_metric_field(var, old_connectivity, param.mesh.resolution, *var.ntmp, *var.tmp_result_sg);
     //      i) If sol array is available:
     if( MMG3D_Set_scalarSols(mmgSol, (*var.ntmp).data()) != 1 )
         exit(EXIT_FAILURE);
@@ -1434,7 +1512,7 @@ void optimize_mesh_2d(const Param &param, Variables &var, int bad_quality,
     uint_vec old_bcflag(*var.bcflag);
     int_vec old_bnodes[nbdrytypes];
     for (int i=0; i<nbdrytypes; ++i) {
-        old_bnodes[i] = var.bnodes[i];
+        old_bnodes[i] = *(var.bnodes[i]);
     }
 
     int_vec points_to_delete;
@@ -1517,7 +1595,7 @@ void optimize_mesh_2d(const Param &param, Variables &var, int bad_quality,
     if( MMG2D_Set_solSize(mmgMesh, mmgSol, MMG5_Vertex, old_nnode, MMG5_Scalar) != 1 )
         exit(EXIT_FAILURE);
     //   b) give solutions values and positions
-    compute_metric_field(var, old_connectivity, param.mesh.resolution, *var.ntmp);
+    compute_metric_field(var, old_connectivity, param.mesh.resolution, *var.ntmp, *var.tmp_result_sg);
     //      i) If sol array is available:
     if( MMG2D_Set_scalarSols(mmgSol, (*var.ntmp).data()) != 1 )
         exit(EXIT_FAILURE);
@@ -1674,7 +1752,7 @@ void optimize_mesh(const Param &param, Variables &var, int bad_quality,
     uint_vec old_bcflag(*var.bcflag);
     int_vec old_bnodes[nbdrytypes];
     for (int i=0; i<nbdrytypes; ++i) {
-        old_bnodes[i] = var.bnodes[i];
+        old_bnodes[i] = *(var.bnodes[i]);
     }
 
     int_vec points_to_delete;
@@ -1881,6 +1959,9 @@ void optimize_mesh(const Param &param, Variables &var, int bad_quality,
 
 int bad_mesh_quality(const Param &param, const Variables &var, int &index)
 {
+#ifdef USE_NPROF
+    nvtxRangePushA(__FUNCTION__);
+#endif
     /* Check the quality of the mesh, return 0 if the mesh quality (by several
      * measures) is good. Non-zero returned values indicate --
      * 1: an element has bad quality (too acute / narrow / flat).
@@ -1895,6 +1976,9 @@ int bad_mesh_quality(const Param &param, const Variables &var, int &index)
         if ((*var.volume)[e] < smallest_vol) {
             index = e;
             std::cout << "    The size of element #" << index << " is too small.\n";
+#ifdef USE_NPROF
+            nvtxRangePop();
+#endif
             return 3;
         }
     }
@@ -1911,6 +1995,9 @@ int bad_mesh_quality(const Param &param, const Variables &var, int &index)
                 if (std::fabs(z - bottom) > dist) {
                     index = i;
                     std::cout << "    Node #" << i << " is too far from the bottm: z = " << z << "\n";
+#ifdef USE_NPROF
+                    nvtxRangePop();
+#endif
                     return 2;
                 }
             }
@@ -1928,14 +2015,23 @@ int bad_mesh_quality(const Param &param, const Variables &var, int &index)
     if (q < param.mesh.min_quality) {
         index = worst_elem;
         std::cout << "    Element #" << worst_elem << " has mesh quality = " << q << ".\n";
+#ifdef USE_NPROF
+        nvtxRangePop();
+#endif
         return 1;
     }
+#ifdef USE_NPROF
+    nvtxRangePop();
+#endif
     return 0;
 }
 
 
 void remesh(const Param &param, Variables &var, int bad_quality)
 {
+#ifdef USE_NPROF
+    nvtxRangePushA(__FUNCTION__);
+#endif
     std::cout << "  Remeshing starts...\n";
 
     {
@@ -1985,6 +2081,8 @@ void remesh(const Param &param, Variables &var, int bad_quality)
         std::cout << "    Remapping markers.\n";
         // remap markers. elemmarkers are updated here, too.
         remap_markers(param, var, old_coord, old_connectivity);
+//        var.markersets[0]->update_marker_in_elem(var);
+//        var.markersets[0]->create_melt_markers(param.mat.mattype_partial_melting_mantle,var.melt_markers);
   
         // old_coord et al. are destroyed before exiting this block
     }
@@ -1995,30 +2093,33 @@ void remesh(const Param &param, Variables &var, int bad_quality)
     // updating other arrays
     create_boundary_flags(var);
     for (int i=0; i<nbdrytypes; ++i) {
-        var.bnodes[i].clear();
-        var.bfacets[i].clear();
+        var.bnodes[i]->clear();
+        var.bfacets[i]->clear();
     }
     create_boundary_nodes(var);
     create_boundary_facets(var);
+
+    delete var.top_elems;
+    create_top_elems(var);
+
+    update_surface_info(var, var.surfinfo);
+
     /* // moved before remap_markers()
      * delete var.support;
      * create_support(var);
      */
-    create_elem_groups(var);
 
     compute_volume(*var.coord, *var.connectivity, *var.volume);
     // TODO: using edvoldt and volume to get volume_old
     std::copy(var.volume->begin(), var.volume->end(), var.volume_old->begin());
-    compute_mass(param, var.egroups, *var.connectivity, *var.volume, *var.mat,
-                 var.max_vbc_val, *var.volume_n, *var.mass, *var.tmass);
-    compute_shape_fn(*var.coord, *var.connectivity, *var.volume, var.egroups,
-                     *var.shpdx, *var.shpdy, *var.shpdz);
+    compute_mass(param, var, var.max_vbc_val, *var.volume_n, *var.mass, *var.tmass, *var.tmp_result);
+    compute_shape_fn(var, *var.shpdx, *var.shpdy, *var.shpdz);
 
     if (param.mesh.remeshing_option==1 ||
         param.mesh.remeshing_option==2 ||
         param.mesh.remeshing_option==11) {
         /* Reset coord0 of the bottom nodes */
-        for (auto i=var.bnodes[iboundz0].begin(); i<var.bnodes[iboundz0].end(); ++i) {
+        for (auto i=var.bnodes[iboundz0]->begin(); i<var.bnodes[iboundz0]->end(); ++i) {
             int n = *i;
             (*var.coord0)[n][NDIMS-1] = -param.mesh.zlength;
         }
@@ -2028,10 +2129,13 @@ void remesh(const Param &param, Variables &var, int bad_quality)
         // the following variables need to be re-computed only when we are
         // outputing right after remeshing
         update_strain_rate(var, *var.strain_rate);
-        update_force(param, var, *var.force);
+        update_force(param, var, *var.force, *var.tmp_result);
     }
 
     std::cout << "  Remeshing finished.\n";
+#ifdef USE_NPROF
+    nvtxRangePop();
+#endif
 }
 
 

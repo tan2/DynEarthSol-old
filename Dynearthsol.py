@@ -159,6 +159,15 @@ class Dynearthsol:
                 marker_data[name] = np.fromfile(f, dtype=np.int32, count=nmarkers)
                 #print(marker_data[name].shape, marker_data[name])
 
+            # float
+            for name in (markername+'.time',markername+'.z',markername+'.distance',markername+'.slope'):
+                try:
+                    pos = self.field_pos[name]
+                    f.seek(pos)
+                    marker_data[name] = np.fromfile(f, dtype=np.float64, count=nmarkers)
+                except:
+                    pass
+
         return marker_data
 
 
@@ -216,5 +225,14 @@ class DynearthsolCheckpoint(Dynearthsol):
                 f.seek(pos)
                 marker_data[name] = np.fromfile(f, dtype=np.int32, count=nmarkers)
                 #print(marker_data[name].shape, marker_data[name])
+
+            # float
+            for name in (markername+'.time',markername+'.z',markername+'.distance',markername+'.slope'):
+                try:
+                    pos = self.field_pos[name]
+                    f.seek(pos)
+                    marker_data[name] = np.fromfile(f, dtype=np.float64, count=nmarkers)
+                except:
+                    pass
 
         return marker_data

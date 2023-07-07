@@ -68,8 +68,7 @@ void read_external_temperature_from_comsol(const Param &param,
             nzs.push_back(z);
 
             /* Assign temperature to the nodes according to the order in node-coord profile.*/
-            int j = 0;
-            for (j=0; j<xs.size();++j) {
+            for (size_t j=0; j<xs.size();++j) {
                 if (abs(nxs[ni]-xs[j])<0.001 && abs(nys[ni]-ys[j])<0.001 && abs(nzs[ni]-zs[j])<0.001)
                     nTs.push_back(Ts[j]);
             }
@@ -78,18 +77,17 @@ void read_external_temperature_from_comsol(const Param &param,
     }
 
     /* Write x&y-coord to array_t coord(nnodes). Write temperature to double_vec temperature(nnodes).*/
-    int n;
     int nnodes = nis.size();
     array_t input_coord(nnodes);	// coord[node#][dim#];
     double_vec inputtemperature(nnodes);
 
-    for (n=0; n<nis.size(); ++n) {
-  	input_coord[n][0] = nxs[n];
-   	input_coord[n][1] = nys[n];
+    for (size_t n=0; n<nis.size(); ++n) {
+        input_coord[n][0] = nxs[n];
+        input_coord[n][1] = nys[n];
 #ifdef THREED
-	input_coord[n][2] = nzs[n];
+    	input_coord[n][2] = nzs[n];
 #endif
-   	inputtemperature[n] = nTs[n];
+   	    inputtemperature[n] = nTs[n];
     }
 
     /* Read the Connectivity file(n0 n1 n2).*/
@@ -120,11 +118,10 @@ void read_external_temperature_from_comsol(const Param &param,
     }
 
     /* Write nodes to conn_t connectivity(nelem).*/
-    int m, l;
     int nelem = es.size();
     conn_t input_connectivity(nelem);	// connectivity[elem#][0-NODES_PER_ELEM-1]
     int_vec2D input_support(nnodes); //create input_support
-    for (m=0; m<es.size(); ++m) {
+    for (size_t m=0; m<es.size(); ++m) {
   	input_connectivity[m][0] = n0s[m];
    	input_connectivity[m][1] = n1s[m];
    	input_connectivity[m][2] = n2s[m];
@@ -132,7 +129,7 @@ void read_external_temperature_from_comsol(const Param &param,
 	input_connectivity[m][3] = n3s[m];
 #endif
 	int *conn = (input_connectivity[m]);
-	for (int l=0; l<NODES_PER_ELEM; ++l) {
+	for (size_t l=0; l<NODES_PER_ELEM; ++l) {
 	    (input_support)[conn[l]].push_back(m);
 	}
     }

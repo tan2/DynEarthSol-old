@@ -1,9 +1,9 @@
 #include <iostream>
+#ifdef USE_NPROF
+#include <nvToolsExt.h> 
+#endif
 #include <limits>
 
-#ifdef USE_OMP
-#include <omp.h>
-#endif
 
 #include "constants.hpp"
 #include "parameters.hpp"
@@ -20,6 +20,7 @@
 #include "phasechanges.hpp"
 #include "remeshing.hpp"
 #include "rheology.hpp"
+#include "utils.hpp"
 
 #ifdef WIN32
 #ifdef _MSC_VER
@@ -32,9 +33,19 @@ void init_var(const Param& param, Variables& var)
 {
     var.time = 0;
     var.steps = 0;
+    var.func_time.output_time = 0;
+    var.func_time.remesh_time = 0;
+    var.func_time.start_time = get_nanoseconds();
+
+    for (int i=0;i<nbdrytypes;++i)
+        var.bfacets[i] = new std::vector< std::pair<int,int> >;
+    for (int i=0;i<nbdrytypes;++i)
+        var.bnodes[i] = new int_vec;
+    var.bnormals = new array_t(nbdrytypes);
 
     if (param.control.characteristic_speed == 0)
         var.max_vbc_val = find_max_vbc(param.bc);
+        // todo max_vbc_val change with boundary period.
     else
         var.max_vbc_val = param.control.characteristic_speed;
 
@@ -61,11 +72,32 @@ void init_var(const Param& param, Variables& var)
     var.vbc_values[7] = param.bc.vbc_val_n1;
     var.vbc_values[8] = param.bc.vbc_val_n2;
     var.vbc_values[9] = param.bc.vbc_val_n3;
+
+    var.vbc_vertical_div_x0[0] = 0.;
+    var.vbc_vertical_div_x0[1] = param.bc.vbc_val_division_x0_min;
+    var.vbc_vertical_div_x0[2] = param.bc.vbc_val_division_x0_max;
+    var.vbc_vertical_div_x0[3] = 1.;
+    var.vbc_vertical_div_x1[0] = 0.;
+    var.vbc_vertical_div_x1[1] = param.bc.vbc_val_division_x1_min;
+    var.vbc_vertical_div_x1[2] = param.bc.vbc_val_division_x1_max;
+    var.vbc_vertical_div_x1[3] = 1.;
+
+    var.vbc_vertical_ratio_x0[0] = param.bc.vbc_val_x0_ratio0;
+    var.vbc_vertical_ratio_x0[1] = param.bc.vbc_val_x0_ratio1;
+    var.vbc_vertical_ratio_x0[2] = param.bc.vbc_val_x0_ratio2;
+    var.vbc_vertical_ratio_x0[3] = param.bc.vbc_val_x0_ratio3;
+    var.vbc_vertical_ratio_x1[0] = param.bc.vbc_val_x1_ratio0;
+    var.vbc_vertical_ratio_x1[1] = param.bc.vbc_val_x1_ratio1;
+    var.vbc_vertical_ratio_x1[2] = param.bc.vbc_val_x1_ratio2;
+    var.vbc_vertical_ratio_x1[3] = param.bc.vbc_val_x1_ratio3;
 }
 
 
 void init(const Param& param, Variables& var)
 {
+#ifdef USE_NPROF
+    nvtxRangePushA(__FUNCTION__);
+#endif
     std::cout << "Initializing mesh and field data...\n";
 
     create_new_mesh(param, var);
@@ -73,11 +105,15 @@ void init(const Param& param, Variables& var)
     create_boundary_nodes(var);
     create_boundary_facets(var);
     create_support(var);
-    create_elem_groups(var);
     create_elemmarkers(param, var);
     create_markers(param, var);
 
     allocate_variables(param, var);
+//    var.markersets[0]->create_marker_in_elem(var);
+//    var.markersets[0]->create_melt_markers(param.mat.mattype_partial_melting_mantle,var.melt_markers);
+
+    create_top_elems(var);
+    create_surface_info(param,var,var.surfinfo);
 
     for(int i=0; i<var.nnode; i++)
         for(int d=0; d<NDIMS; d++)
@@ -85,19 +121,21 @@ void init(const Param& param, Variables& var)
 
     compute_volume(*var.coord, *var.connectivity, *var.volume);
     *var.volume_old = *var.volume;
-    compute_mass(param, var.egroups, *var.connectivity, *var.volume, *var.mat,
-                 var.max_vbc_val, *var.volume_n, *var.mass, *var.tmass);
-    compute_shape_fn(*var.coord, *var.connectivity, *var.volume, var.egroups,
-                     *var.shpdx, *var.shpdy, *var.shpdz);
+    compute_mass(param, var, var.max_vbc_val, *var.volume_n, *var.mass, *var.tmass, *var.tmp_result);
+    compute_shape_fn(var, *var.shpdx, *var.shpdy, *var.shpdz);
 
-    create_boundary_normals(var, var.bnormals, var.edge_vectors);
+    create_boundary_normals(var, *var.bnormals, var.edge_vectors);
     apply_vbcs(param, var, *var.vel);
+
     // temperature should be init'd before stress and strain
     initial_temperature(param, var, *var.temperature);
     initial_stress_state(param, var, *var.stress, *var.stressyy, *var.strain, var.compensation_pressure);
     initial_weak_zone(param, var, *var.plstrain);
 
     phase_changes_init(param, var);
+#ifdef USE_NPROF
+    nvtxRangePop();
+#endif
 }
 
 
@@ -166,7 +204,6 @@ void restart(const Param& param, Variables& var)
     create_boundary_nodes(var);
     create_boundary_facets(var);
     create_support(var);
-    create_elem_groups(var);
     create_elemmarkers(param, var);
 
     // Replacing create_markers()
@@ -178,17 +215,20 @@ void restart(const Param& param, Variables& var)
 
     allocate_variables(param, var);
 
+    create_top_elems(var);
+//    var.markersets[0]->create_marker_in_elem(var);
+//    var.markersets[0]->create_melt_markers(param.mat.mattype_partial_melting_mantle,var.melt_markers);
+    create_surface_info(param,var,var.surfinfo);
+
     bin_save.read_array(*var.coord0, "coord0");
 
     compute_volume(*var.coord, *var.connectivity, *var.volume);
     bin_chkpt.read_array(*var.volume_old, "volume_old");
-    compute_mass(param, var.egroups, *var.connectivity, *var.volume, *var.mat,
-                 var.max_vbc_val, *var.volume_n, *var.mass, *var.tmass);
-    compute_shape_fn(*var.coord, *var.connectivity, *var.volume, var.egroups,
-                     *var.shpdx, *var.shpdy, *var.shpdz);
+    compute_mass(param, var, var.max_vbc_val, *var.volume_n, *var.mass, *var.tmass, *var.tmp_result);
 
-    create_boundary_normals(var, var.bnormals, var.edge_vectors);
-    apply_vbcs(param, var, *var.vel);
+    compute_shape_fn(var, *var.shpdx, *var.shpdy, *var.shpdz);
+
+    create_boundary_normals(var, *var.bnormals, var.edge_vectors);
 
     // Initializing field variables
     {
@@ -202,6 +242,7 @@ void restart(const Param& param, Variables& var)
         if (param.mat.is_plane_strain)
             bin_chkpt.read_array(*var.stressyy, "stressyy");
     }
+    apply_vbcs(param, var, *var.vel);
 
     // Misc. items
     {
@@ -220,20 +261,44 @@ void restart(const Param& param, Variables& var)
 
 void update_mesh(const Param& param, Variables& var)
 {
-    update_coordinate(var, *var.coord);
-    surface_processes(param, var, *var.coord);
+#ifdef USE_NPROF
+    nvtxRangePushA(__FUNCTION__);
+#endif
 
-    var.volume->swap(*var.volume_old);
-    compute_volume(*var.coord, *var.connectivity, *var.volume);
-    compute_mass(param, var.egroups, *var.connectivity, *var.volume, *var.mat,
-                 var.max_vbc_val, *var.volume_n, *var.mass, *var.tmass);
-    compute_shape_fn(*var.coord, *var.connectivity, *var.volume, var.egroups,
-                     *var.shpdx, *var.shpdy, *var.shpdz);
+    update_coordinate(var, *var.coord);
+    surface_processes(param, var, *var.coord, *var.stress, *var.strain, *var.strain_rate, \
+                      *var.plstrain, var.surfinfo, var.markersets, *var.elemmarkers);
+//    var.markersets[0]->update_marker_in_elem(var);
+//    var.markersets[0]->create_melt_markers(param.mat.mattype_partial_melting_mantle,var.melt_markers);
+
+#ifdef USE_NPROF
+    nvtxRangePushA("swap vectors");
+#endif
+    #pragma serial
+    {
+        double_vec *tmp = var.volume;
+        var.volume = var.volume_old;
+        var.volume_old = tmp;
+    }
+//    var.volume->swap(*var.volume_old);
+#ifdef USE_NPROF
+    nvtxRangePop();
+#endif
+
+    compute_volume(var, *var.volume);
+    compute_mass(param, var, var.max_vbc_val, *var.volume_n, *var.mass, *var.tmass, *var.tmp_result);
+    compute_shape_fn(var, *var.shpdx, *var.shpdy, *var.shpdz);
+#ifdef USE_NPROF
+    nvtxRangePop();
+#endif
 }
 
 
 void isostasy_adjustment(const Param &param, Variables &var)
 {
+#ifdef USE_NPROF
+    nvtxRangePushA(__FUNCTION__);
+#endif
     std::cout << "Adjusting isostasy for " << param.ic.isostasy_adjustment_time_in_yr << " yrs...\n";
 
     var.dt = compute_dt(param, var);
@@ -241,11 +306,12 @@ void isostasy_adjustment(const Param &param, Variables &var)
 
     for (int n=0; n<iso_steps; n++) {
         update_strain_rate(var, *var.strain_rate);
-        compute_dvoldt(var, *var.ntmp);
+        compute_dvoldt(var, *var.ntmp, *var.tmp_result_sg);
         compute_edvoldt(var, *var.ntmp, *var.edvoldt);
-        update_stress(var, *var.stress, *var.stressyy, *var.dpressure, *var.strain,
-                      *var.plstrain, *var.delta_plstrain, *var.strain_rate);
-        update_force(param, var, *var.force);
+        update_stress(param ,var, *var.stress, *var.stressyy, *var.dpressure,
+            *var.viscosity, *var.strain, *var.plstrain, *var.delta_plstrain,
+            *var.strain_rate);
+        update_force(param, var, *var.force, *var.tmp_result);
         update_velocity(var, *var.vel);
 
         // do not apply vbc to allow free boundary
@@ -268,16 +334,14 @@ void isostasy_adjustment(const Param &param, Variables &var)
 
     }
     std::cout << "Adjusted isostasy for " << iso_steps << " steps.\n";
+#ifdef USE_NPROF
+    nvtxRangePop();
+#endif
 }
 
 
 int main(int argc, const char* argv[])
 {
-    double start_time = 0;
-#ifdef USE_OMP
-    start_time = omp_get_wtime();
-#endif
-
     //
     // read command line
     //
@@ -296,7 +360,7 @@ int main(int argc, const char* argv[])
     static Variables var; // declared as static to silence valgrind's memory leak detection
     init_var(param, var);
 
-    Output output(param, start_time,
+    Output output(param, var.func_time.start_time,
                   (param.sim.is_restarting) ? param.sim.restarting_from_frame : 0);
 
     if (! param.sim.is_restarting) {
@@ -322,22 +386,28 @@ int main(int argc, const char* argv[])
 
     std::cout << "Starting simulation...\n";
     do {
+#ifdef USE_NPROF
+        nvtxRangePush("dynearthsol");
+#endif
         var.steps ++;
         var.time += var.dt;
 
         if (param.control.has_thermal_diffusion)
-            update_temperature(param, var, *var.temperature, *var.ntmp);
+            update_temperature(param, var, *var.temperature, *var.ntmp, *var.tmp_result);
 
         update_strain_rate(var, *var.strain_rate);
-        compute_dvoldt(var, *var.ntmp);
+        compute_dvoldt(var, *var.ntmp, *var.tmp_result_sg);
         compute_edvoldt(var, *var.ntmp, *var.edvoldt);
-        update_stress(var, *var.stress, *var.stressyy, *var.dpressure, *var.strain,
-                      *var.plstrain, *var.delta_plstrain, *var.strain_rate);
+
+        update_stress(param, var, *var.stress, *var.stressyy, *var.dpressure,
+            *var.viscosity, *var.strain, *var.plstrain, *var.delta_plstrain,
+            *var.strain_rate);
 
 	// Nodal Mixed Discretization For Stress
-	NMD_stress(var, *var.ntmp, *var.stress);
+        if (param.control.is_using_mixed_stress)
+            NMD_stress(param, var, *var.ntmp, *var.stress, *var.tmp_result_sg);
 
-        update_force(param, var, *var.force);
+        update_force(param, var, *var.force, *var.tmp_result);
         update_velocity(var, *var.vel);
         apply_vbcs(param, var, *var.vel);
         update_mesh(param, var);
@@ -381,7 +451,9 @@ int main(int argc, const char* argv[])
             if (next_regular_frame % param.sim.checkpoint_frame_interval == 0)
                 output.write_checkpoint(param, var);
 
+            int64_t time_tmp = get_nanoseconds();
             output.write(var);
+            var.func_time.output_time += get_nanoseconds() - time_tmp;
 
             next_regular_frame ++;
         }
@@ -392,19 +464,39 @@ int main(int argc, const char* argv[])
             if (quality_is_bad) {
 
                 if (param.sim.has_output_during_remeshing) {
+                    int64_t time_tmp = get_nanoseconds();
                     output.write_exact(var);
+                    var.func_time.output_time += get_nanoseconds() - time_tmp;
                 }
 
+                int64_t time_tmp = get_nanoseconds();
                 remesh(param, var, quality_is_bad);
+                var.func_time.remesh_time += get_nanoseconds() - time_tmp;
 
                 if (param.sim.has_output_during_remeshing) {
+                    int64_t time_tmp = get_nanoseconds();
                     output.write_exact(var);
+                    var.func_time.output_time += get_nanoseconds() - time_tmp;
                 }
             }
         }
+#ifdef USE_NPROF
+        nvtxRangePop();
+#endif
 
     } while (var.steps < param.sim.max_steps && var.time <= param.sim.max_time_in_yr * YEAR2SEC);
 
     std::cout << "Ending simulation.\n";
+    int64_t duration_ns = get_nanoseconds() - var.func_time.start_time;
+    std::cout << "Time summary...\n  Execute: ";
+    print_time_ns(duration_ns);
+    std::cout << "\n  Remesh : ";
+    print_time_ns(var.func_time.remesh_time);
+    std::cout << " (" <<  std::setw(5) << std::fixed << std::setprecision(2) << std::setfill(' ')
+        << 100.*var.func_time.remesh_time/duration_ns << "%)\n";
+    std::cout << "  Output : ";
+    print_time_ns(var.func_time.output_time);
+    std::cout << " (" <<  std::setw(5) <<  std::fixed << std::setprecision(2) << std::setfill(' ')
+        << 100./var.func_time.output_time/duration_ns << "%)\n";
     return 0;
 }

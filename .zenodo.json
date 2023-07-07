@@ -1,0 +1,36 @@
+{
+    "description": "DynEarthSol for sedimentology.",
+    "license": "MIT",
+    "title": "DynEarthSol",
+    "upload_type": "software",
+    "keywords": [
+        "DynEarthSol",
+        "Sedimentology"
+    ],
+    "creators": [
+        {
+            "orcid": "0000-0002-7144-1394",
+            "affiliation": "Taiwan International Graduate Program (TIGP) - Earth System Science Program, Academia Sinica and National Central University, Academia Sinica, Taiwan",
+            "name": "Shyu, Chase J."
+        },
+        {
+            "orcid": "0000-0002-1815-9613",
+            "affiliation": "Institute of Earth Sciences, Academia Sinica, Taiwan",
+            "name": "Tan, Eh"
+        },
+        {
+            "orcid": "0000-0002-8857-6092",
+            "affiliation": "Center for Earthquake Research and Information, University of Memphis, Memphis, TN, USA",
+            "name": "Choi, Eunseo"
+        }
+    ],
+    "access_right": "open",
+    "related_identifiers": [
+        {
+            "scheme": "doi", 
+            "identifier": "10.5281/zenodo.7455730", 
+            "relation": "isVersionOf"
+        }
+    ]
+
+}

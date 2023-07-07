@@ -1,0 +1,37 @@
+#
+#  0---------------------------3
+#  |                           |
+#  |                           |
+#  |                           |
+#  |          mantle           |
+#  |                           |
+#  |                           |
+#  |                           |
+#  1---------------------------2
+#
+#### node coordinates ####
+# npoints ndims 0 0
+  4      2     0 0
+# i    xi       yi
+  0     0.e3     0.e3
+  1     0.e3  -100.e3
+  2   150.e3  -100.e3
+  3   150.e3     0.e3
+
+#### segments ####
+# nsegments 1
+  4        1
+# j  pj0  pj1  bdry_flag
+  0   0    1    1  #  1: left (x0)
+  1   1    2   16  # 16: bottom (z0)
+  2   2    3    2  #  2: rigth
+  3   3    0   32  # 32: top (z1)
+
+
+#### holes, must be 0 ####
+0
+#### regions ####
+# nregions
+  1
+# k   xk       zk    mattype     size
+  0  75.e3   -50.e3       0       1.e0  # ratio to the area of regular setting

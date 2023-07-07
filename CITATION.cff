@@ -1,0 +1,17 @@
+cff-version: 1.0.0
+message: "If you use this software, please cite it as below."
+authors:
+- family-names: "Shyu"
+  given-names: "Chase J."
+  orcid: "https://orcid.org/0000-0002-7144-1394"
+- family-names: "Tan"
+  given-names: "Eh"
+  orcid: "https://orcid.org/0000-0002-1815-9613"
+- family-names: "Choi"
+  given-names: "Eunseo"
+  orcid: "https://orcid.org/0000-0002-8857-6092"
+title: "DynEarthSol"
+version: 0.1.0
+doi: 10.5281/zenodo.7455730
+date-released: 2022-12-19
+url: "https://doi.org/10.5281/zenodo.7455730"

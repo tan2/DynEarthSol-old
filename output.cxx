@@ -3,11 +3,8 @@
 #include <cstdio>
 #include <iterator>  // For std::distance
 #include <iostream>
-
-#ifdef USE_OMP
-#include <omp.h>
-#else
-#include <ctime>
+#ifdef USE_NPROF
+#include <nvToolsExt.h>
 #endif
 
 #include "constants.hpp"
@@ -17,6 +14,7 @@
 #include "markerset.hpp"
 #include "matprops.hpp"
 #include "output.hpp"
+#include "utils.hpp"
 
 #ifdef WIN32
 #ifdef _MSC_VER
@@ -25,7 +23,7 @@
 namespace std { using ::snprintf; }
 #endif // WIN32
 
-Output::Output(const Param& param, double start_time, int start_frame) :
+Output::Output(const Param& param, int64_t start_time, int start_frame) :
     modelname(param.sim.modelname),
     start_time(start_time),
     is_averaged(param.sim.is_outputting_averaged_fields),
@@ -42,11 +40,7 @@ Output::~Output()
 
 void Output::write_info(const Variables& var, double dt)
 {
-#ifdef USE_OMP
-    double run_time = omp_get_wtime() - start_time;
-#else
-    double run_time = double(std::clock()) / CLOCKS_PER_SEC;
-#endif
+    double run_time = (get_nanoseconds() - start_time) * 1e-9;
 
     char buffer[256];
     std::snprintf(buffer, 255, "%6d\t%10d\t%12.6e\t%12.4e\t%12.6e\t%8d\t%8d\t%8d\n",
@@ -78,6 +72,9 @@ void Output::write_info(const Variables& var, double dt)
 
 void Output::_write(const Variables& var, bool disable_averaging)
 {
+#ifdef USE_NPROF
+    nvtxRangePushA(__FUNCTION__);
+#endif
     double dt = var.dt;
     double inv_dt = 0; // only used when is_averaged
     if (!disable_averaging && is_averaged) {
@@ -145,26 +142,31 @@ void Output::_write(const Variables& var, bool disable_averaging)
     }
 
     double_vec tmp(var.nelem);
+    #pragma omp parallel for default(none) shared(var, tmp)
     for (int e=0; e<var.nelem; ++e) {
         tmp[e] = var.mat->rho(e);
     }
     bin.write_array(tmp, "density", tmp.size());
 
+    #pragma omp parallel for default(none) shared(var, tmp)
     for (int e=0; e<var.nelem; ++e) {
         tmp[e] = elem_quality(*var.coord, *var.connectivity, *var.volume, e);
     }
     bin.write_array(tmp, "mesh quality", tmp.size());
 
+    #pragma omp parallel for default(none) shared(var, tmp)
     for (int e=0; e<var.nelem; ++e) {
         tmp[e] = var.mat->visc(e);
     }
     bin.write_array(tmp, "viscosity", tmp.size());
+
     // bin.write_array(*var.mass, "mass", var.mass->size());
     // bin.write_array(*var.tmass, "tmass", var.tmass->size());
     // bin.write_array(*var.volume_n, "volume_n", var.volume_n->size());
     // bin.write_array(*var.volume, "volume", var.volume->size());
     // bin.write_array(*var.edvoldt, "edvoldt", var.edvoldt->size());
 
+    #pragma omp parallel for default(none) shared(var, tmp)
     for (int e=0; e<var.nelem; ++e) {
         // Find the most abundant marker mattype in this element
         int_vec &a = (*var.elemmarkers)[e];
@@ -184,10 +186,14 @@ void Output::_write(const Variables& var, bool disable_averaging)
     }
 
     bin.close();
+    int64_t duration_ns = get_nanoseconds() - start_time;
     std::cout << "  Output # " << frame
               << ", step = " << var.steps
               << ", time = " << var.time / YEAR2SEC << " yr"
-              << ", dt = " << dt / YEAR2SEC << " yr.\n";
+              << ", dt = " << dt / YEAR2SEC << " yr"
+              << ", wt = ";
+    print_time_ns(duration_ns);
+    std::cout << "\n";
 
     frame ++;
 
@@ -205,6 +211,9 @@ void Output::_write(const Variables& var, bool disable_averaging)
                 }
             }
     }
+#ifdef USE_NPROF
+    nvtxRangePop();
+#endif
 }
 
 
@@ -265,6 +274,9 @@ void Output::average_fields(Variables& var)
 
 void Output::write_checkpoint(const Param& param, const Variables& var)
 {
+#ifdef USE_NPROF
+    nvtxRangePushA(__FUNCTION__);
+#endif
     char filename[256];
     std::snprintf(filename, 255, "%s.chkpt.%06d", modelname.c_str(), frame);
     BinaryOutput bin(filename);
@@ -285,5 +297,8 @@ void Output::write_checkpoint(const Param& param, const Variables& var)
 
     for (auto ms=var.markersets.begin(); ms!=var.markersets.end(); ++ms)
         (*ms)->write_chkpt_file(bin);
+#ifdef USE_NPROF
+    nvtxRangePop();
+#endif
 }
 

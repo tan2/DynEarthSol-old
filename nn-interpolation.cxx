@@ -2,6 +2,9 @@
 #include <map>
 #include <numeric>
 #include <stdexcept>
+#ifdef USE_NPROF
+#include <nvToolsExt.h> 
+#endif
 
 #include "ANN/ANN.h"
 
@@ -18,6 +21,9 @@ namespace {
     void find_nearest_neighbor(const Variables &var, ANNkd_tree &kdtree,
                                int_vec &idx, int_vec &is_changed)
     {
+#ifdef USE_NPROF
+        nvtxRangePushA(__FUNCTION__);
+#endif
         double **new_center = elem_center(*var.coord, *var.connectivity);
 
         const int k = 1;
@@ -34,6 +40,9 @@ namespace {
 
         delete [] new_center[0];
         delete [] new_center;
+#ifdef USE_NPROF
+        nvtxRangePop();
+#endif
     }
 
 
@@ -44,6 +53,9 @@ namespace {
                               std::vector<int_vec> &elems_vec,
                               std::vector<double_vec> &ratios_vec)
     {
+#ifdef USE_NPROF
+        nvtxRangePushA(__FUNCTION__);
+#endif
         const int neta0 = 10; // larger neta0, more accurate mapping
         const int neta1 = neta0 + 1; // different from neta0 to prevent the temporary point falling the edge of elements
         const int neta2 = neta0;
@@ -172,6 +184,9 @@ namespace {
                 elem_count.clear();
             }
         }
+#ifdef USE_NPROF
+        nvtxRangePop();
+#endif
     }
 
 
@@ -184,6 +199,9 @@ namespace {
                                std::vector<int_vec> &elems_vec,
                                std::vector<double_vec> &ratios_vec)
     {
+#ifdef USE_NPROF
+        nvtxRangePushA(__FUNCTION__);
+#endif
         // kdtree requires the coordinate as double**
         double **old_center = elem_center(old_coord, old_connectivity);
         ANNkd_tree kdtree(old_center, old_connectivity.size(), NDIMS);
@@ -194,6 +212,9 @@ namespace {
 
         delete [] old_center[0];
         delete [] old_center;
+#ifdef USE_NPROF
+        nvtxRangePop();
+#endif
     }
 
 
@@ -267,6 +288,9 @@ namespace {
                                     const std::vector<int_vec> &elems_vec,
                                     const std::vector<double_vec> &ratios_vec)
     {
+#ifdef USE_NPROF
+        nvtxRangePushA(__FUNCTION__);
+#endif
         const int n = var.nnode;
         const int e = var.nelem;
 
@@ -297,6 +321,9 @@ namespace {
         inject_field(idx, is_changed, elems_vec, ratios_vec, *var.stressyy, *a);
         delete var.stressyy;
         var.stressyy = a;
+#ifdef USE_NPROF
+        nvtxRangePop();
+#endif
     }
 
 } // anonymous namespace
@@ -307,6 +334,9 @@ void nearest_neighbor_interpolation(Variables &var,
                                     const array_t &old_coord,
                                     const conn_t &old_connectivity)
 {
+#ifdef USE_NPROF
+    nvtxRangePushA(__FUNCTION__);
+#endif
     int_vec idx(var.nelem); // nearest element
     int_vec is_changed(var.nelem); // is the element changed during remeshing?
 
@@ -319,4 +349,7 @@ void nearest_neighbor_interpolation(Variables &var,
     // print(std::cout, ratios_vec);
 
     nn_interpolate_elem_fields(var, idx, is_changed, elems_vec, ratios_vec);
+#ifdef USE_NPROF
+    nvtxRangePop();
+#endif
 }

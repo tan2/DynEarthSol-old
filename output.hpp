@@ -7,11 +7,11 @@ class Output
 {
 private:
     const std::string &modelname;
-    const double start_time;
+    const int64_t start_time;
+    const bool is_averaged;
     const int average_interval;
     const bool has_marker_output;
     int frame;
-    const bool is_averaged;
 
     // stuffs for averging fields
     double time0;
@@ -24,7 +24,7 @@ private:
     void _write(const Variables& var, bool disable_averaging=false);
 
 public:
-    Output(const Param& param, double start_time, int start_frame);
+    Output(const Param& param, int64_t start_time, int start_frame);
     ~Output();
     void write(const Variables& var);
     void write_exact(const Variables& var);

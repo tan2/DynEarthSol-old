@@ -141,7 +141,7 @@ namespace {
                 #pragma omp critical(phase_change_simple_subduction)
                 {
                     // Add new marker, which has the same coordinate as the dehydrated marker
-                    hydms.append_marker(eta, el, 0);
+                    hydms.append_marker(eta, el, 0, 0., 0., 0., 0.);
                     ++hydem[el][0];
                 }
             }
@@ -171,6 +171,63 @@ namespace {
         }
     };
 
+    // A template to phase change function
+    class SimpleRifting : public PhaseChange
+    {
+        int_vec& melt_markers;
+
+        enum {
+//            mt_mantle = 0,
+        };
+    public:
+        SimpleRifting(const Param& param, const Variables& var, const MarkerSet& ms, int_vec& melt_markers_) :
+            PhaseChange(param, var, ms), melt_markers(melt_markers_)
+        {
+            melt_markers.reserve(200);
+        }
+
+        int operator()(int m)
+        {
+            double Z, P, T;
+
+            int current_mt = ms.get_mattype(m);
+            // Set new mattype the same as current mattype for now
+            int new_mt = current_mt;
+
+            if (current_mt == param.mat.mattype_mantle) {
+                get_ZPT(m, Z, P, T);
+                if ( T >= ((1120 + (680./7.e9)*P) + 273. - Z*3.e-4)) {
+                    new_mt = param.mat.mattype_partial_melting_mantle;
+//                    melt_markers.push_back(m);
+                    printf("**Marker %d change from mantle to paritial melting\n", m);
+                }
+            } else if (current_mt == param.mat.mattype_partial_melting_mantle) {
+                get_ZPT(m, Z, P, T);
+                if ( T < ((1120 + (680./7.e9)*P) + 273. - Z*3.e-4)) {
+                    new_mt = param.mat.mattype_depleted_mantle;
+
+//                    size_t nm = melt_markers.size();
+//                    int found = 0;
+//                    for (size_t i=0; i<nm; i++) {
+//                        if(melt_markers[i] == m) {
+//                            for(size_t j=i; j<(nm-1); j++)
+//                                melt_markers[j] = melt_markers[j+1];
+//                            found++;
+//                            i--;
+//                            nm--;
+//                        }
+//                    }
+//                    if(found==0)
+//                        std::cout<<"\nElement doesn't found in the Array!";
+//                    else
+//                        std::cout<<"\nElement Deleted Successfully!";
+//                    std::cout<<std::endl;
+                    printf("**Marker %d change from paritial melting to depleted\n", m);
+                }
+            }
+            return new_mt;
+        }
+    };
 
     // A template to phase change function
     class Custom_PhCh : public PhaseChange
@@ -206,7 +263,7 @@ namespace {
 
 void phase_changes_init(const Param& param, Variables& var)
 {
-    PhaseChange *phch = nullptr;
+    PhaseChange *phch = 0;
     if (param.mat.nmat == 1 || param.mat.phase_change_option == 0) return;
 
     MarkerSet& ms = *(var.markersets[0]);
@@ -216,6 +273,9 @@ void phase_changes_init(const Param& param, Variables& var)
         phch = new SimpleSubduction(param, var, ms,
                                     *var.markersets[var.hydrous_marker_index],
                                     *var.hydrous_elemmarkers);
+        break;
+    case 2:
+        phch = new SimpleRifting(param, var, ms, var.melt_markers);
         break;
     case 101:
         phch = new Custom_PhCh(param, var, ms);
@@ -231,7 +291,7 @@ void phase_changes_init(const Param& param, Variables& var)
 
 void phase_changes(const Param& param, Variables& var)
 {
-    if (var.phch == nullptr) return;  // no phase change
+    if (var.phch == 0) return;  // no phase change
 
     PhaseChange& phch = *var.phch;
     MarkerSet& ms = *(var.markersets[0]);

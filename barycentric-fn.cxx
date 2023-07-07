@@ -29,6 +29,34 @@ Barycentric_transformation::Barycentric_transformation(const array_t &coord,
     }
 }
 
+Barycentric_transformation::Barycentric_transformation(const int_vec &elem,
+                                                       const array_t &coord,
+                                                       const conn_t &connectivity,
+                                                       const double_vec &volume)
+    : coeff_(elem.size())
+{
+    #pragma omp parallel for default(none) \
+        shared(elem, coord, connectivity, volume)
+    for (std::size_t i=0; i<elem.size(); ++i) {
+        int e = elem[i];
+        int n0 = connectivity[e][0];
+        int n1 = connectivity[e][1];
+        int n2 = connectivity[e][2];
+
+        const double *a = coord[n0];
+        const double *b = coord[n1];
+        const double *c = coord[n2];
+
+#ifdef THREED
+        int n3 = connectivity[e][3];
+        const double *d = coord[n3];
+
+        compute_coeff3d(a, b, c, d, volume[i], coeff_[i]);
+#else
+        compute_coeff2d(a, b, c, volume[i], coeff_[i]);
+#endif
+    }
+}
 
 Barycentric_transformation::Barycentric_transformation(const double** coord,
                                                        const double volume)

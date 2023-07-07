@@ -4,10 +4,7 @@
 #include <limits>
 #include <string>
 #include <sstream>
-
-#ifdef USE_OMP
-#include <omp.h>
-#endif
+#include <set>
 
 #ifdef THREED
 
@@ -1564,7 +1561,7 @@ void create_boundary_nodes(Variables& var)
         for (int j=0; j<nbdrytypes; ++j) {
             if (f & (1<<j)) {
                 // this node belongs to a boundary
-                (var.bnodes[j]).push_back(i);
+                (var.bnodes[j])->push_back(i);
             }
         }
     }
@@ -1576,7 +1573,261 @@ void create_boundary_nodes(Variables& var)
     // }
 }
 
+void create_top_elems(Variables& var)
+{
+    const int top_bdry = iboundz1;
+    const int_vec& top_tmp = *var.bnodes[top_bdry];
+    const std::size_t ntop = top_tmp.size();
+    int_vec top_ind(ntop,0);
+    int_vec top_nodes(ntop,0);
 
+    for (size_t i=0;i<ntop;i++)
+        top_ind[i] = i;
+
+    sort(top_ind.begin(), top_ind.end(), [&](const int& a, const int& b) {
+            return ((*var.coord)[top_tmp[a]][0] < (*var.coord)[top_tmp[b]][0]);
+    });
+
+    for (size_t i=0;i<ntop;i++)
+        top_nodes[i] = top_tmp[top_ind[i]];
+            
+
+ 
+    int_vec telems;
+    telems.reserve(100);
+    std::set<int> elem_set;
+
+    //  get top elements
+    for (std::size_t i=0; i<ntop; i++)
+    {
+        int n = top_nodes[i];
+        // grep the element connected surface
+        for (std::size_t j=0; j<(*var.support)[n].size(); j++)
+            //use set to avoid duplicated elements.
+            elem_set.insert((*var.support)[n][j]);
+    }
+    // turn set to vector
+    for (auto it = elem_set.begin(); it != elem_set.end();it++)
+        telems.push_back(*it);
+
+    var.top_elems = new int_vec(telems.begin(),telems.end());
+}
+
+void update_surface_info(const Variables& var, SurfaceInfo& surfinfo)
+{
+
+    const size_t etop = var.bfacets[iboundz1]->size();
+    const size_t ntop = var.bnodes[iboundz1]->size();
+
+    const int top_bdry = iboundz1;
+    const int_vec& top_tmp = *var.bnodes[top_bdry];
+    int_vec top_ind(ntop,0);
+    int_vec top_nodes(ntop,0);
+    double_vec top_x(ntop,0.);
+
+    surfinfo.ntop = ntop;
+    for (size_t i=0;i<ntop;i++)
+        top_x[i] = (*var.coord)[top_tmp[i]][0];
+
+    for (size_t i=0;i<ntop;i++)
+        top_ind[i] = i;
+    sort(top_ind.begin(), top_ind.end(),
+        [&](const int& a, const int& b) {
+            return (top_x[a] < top_x[b]);
+        }
+    );
+    for (size_t i=0;i<ntop;i++)
+        top_nodes[i] = top_tmp[top_ind[i]];
+    delete surfinfo.top_nodes;
+    surfinfo.top_nodes =  new int_vec(top_nodes.begin(),top_nodes.end());
+
+    // create globle --> local map
+    surfinfo.arctop_nodes.clear();
+    for (size_t i=0; i<ntop; i++)
+        surfinfo.arctop_nodes[(*surfinfo.top_nodes)[i]] = i;
+    
+    delete surfinfo.dh;
+    surfinfo.dh = new double_vec(ntop,0.);
+    delete surfinfo.edhacc;
+    surfinfo.edhacc = new array_t(var.nelem);
+    delete surfinfo.edhacc_ind;
+    surfinfo.edhacc_ind = new segment_t(etop);
+    delete surfinfo.top_facet_elems;
+    surfinfo.top_facet_elems = new int_vec(etop,0);
+    delete surfinfo.elem_and_nodes;
+    surfinfo.elem_and_nodes = new segment_t(etop);
+    delete surfinfo.node_and_elems;
+    surfinfo.node_and_elems = new segment_t(ntop);
+    delete surfinfo.nelem_with_node;
+    surfinfo.nelem_with_node = new int_vec(ntop,0);
+
+    delete surfinfo.node_and_nodes;
+    surfinfo.node_and_nodes = new int_vec2D(ntop,int_vec());
+    delete surfinfo.arcelem_and_nodes_num;
+    surfinfo.arcelem_and_nodes_num = new int_map2D(etop);
+
+    delete surfinfo.dh_oc;
+    surfinfo.dh_oc = new double_vec(ntop,0.);
+    delete surfinfo.edhacc_oc;
+    surfinfo.edhacc_oc = new array_t(var.nelem);
+    delete surfinfo.edhacc_ind_oc;
+    surfinfo.edhacc_ind_oc = new segment_t(etop);
+
+    delete surfinfo.total_dx;
+    surfinfo.total_dx = new double_vec(var.nnode,0.);
+    delete surfinfo.total_slope;
+    surfinfo.total_slope = new double_vec(var.nnode,0.);
+
+
+    for (size_t i=0; i<etop; i++) {
+        auto j = (*(var.bfacets[iboundz1]))[i];
+        int e = j.first;
+        int f = j.second;
+
+        (*surfinfo.top_facet_elems)[i] = e;
+        // create globle-local map
+//        surfinfo.arctop_facet_elems[e] = i;
+
+        // the nodes of element
+        int n[NDIMS];
+
+        for (int k=0; k<NDIMS; k++) {
+            n[k] = surfinfo.arctop_nodes[(*var.connectivity)[e][NODE_OF_FACET[f][k]]];
+            (*surfinfo.elem_and_nodes)[i][k] = n[k];
+            (*surfinfo.arcelem_and_nodes_num)[i][n[k]]= k;
+            (*surfinfo.edhacc_ind)[i][k] = n[k];
+        }
+        for (int k=0; k<2; k++) {
+            // store the elements connect to node
+            (*surfinfo.node_and_elems)[n[k]][(*surfinfo.nelem_with_node)[n[k]]] = i;
+            (*surfinfo.nelem_with_node)[n[k]]++;
+
+            // store the nodes connect to ndoe
+            for (int l=0; l<NDIMS; l++)
+                if (k != l)
+                    (*surfinfo.node_and_nodes)[n[k]].push_back(n[l]);
+        }
+    }
+
+    // go through all surface nodes
+    for (size_t i=0; i<ntop; i++) {
+        // get global index of node
+        int n = (*surfinfo.top_nodes)[i];
+
+        // go through connected elements
+        for (size_t j=0; j<(*surfinfo.nelem_with_node)[i]; j++) {
+            // get local index of surface element
+            int e = (*surfinfo.node_and_elems)[i][j];
+            // get global index of element
+            int eg = (*surfinfo.top_facet_elems)[e];
+            // get local index of node in connected element
+            int ind = (*surfinfo.arcelem_and_nodes_num)[e][i];
+            // pass dhacc to new edhacc of connected elements
+            (*surfinfo.edhacc)[eg][ind] = (*surfinfo.dhacc)[n];
+            // oc
+            (*surfinfo.edhacc_oc)[eg][ind] = (*surfinfo.dhacc_oc)[n];
+        }
+    }
+    std::fill(surfinfo.dhacc->begin(), surfinfo.dhacc->end(), 0.);
+    std::fill(surfinfo.dhacc_oc->begin(), surfinfo.dhacc_oc->end(), 0.);
+}
+
+void create_surface_info(const Param& param, const Variables& var, SurfaceInfo& surfinfo)
+{
+
+    const size_t etop = var.bfacets[iboundz1]->size();
+    const size_t ntop = var.bnodes[iboundz1]->size();
+
+    const int top_bdry = iboundz1;
+    const int_vec& top_tmp = *var.bnodes[top_bdry];
+    int_vec top_ind(ntop,0);
+    int_vec top_nodes(ntop,0);
+
+    double_vec top_x(ntop,0.);
+
+    for (size_t i=0;i<ntop;i++)
+        top_x[i] = (*var.coord)[top_tmp[i]][0];
+
+    for (size_t i=0;i<ntop;i++)
+        top_ind[i] = i;
+    sort(top_ind.begin(), top_ind.end(),
+        [&](const int& a, const int& b) {
+            return (top_x[a] < top_x[b]);
+        }
+    );
+    for (size_t i=0;i<ntop;i++)
+        top_nodes[i] = top_tmp[top_ind[i]];
+    surfinfo.top_nodes =  new int_vec(top_nodes.begin(),top_nodes.end());
+
+    surfinfo.ntop = ntop;
+    surfinfo.max_surf_vel = 0;
+    surfinfo.base_level = param.control.surf_base_level;
+    surfinfo.surf_diff = param.control.surface_diffusivity;
+    surfinfo.diff_ratio_terrig = param.control.surf_diff_ratio_terrig;
+    surfinfo.diff_ratio_marine = param.control.surf_diff_ratio_marine;
+    surfinfo.depo_universal = param.control.surf_depo_universal;
+    surfinfo.terrig_diffusivity = param.control.terrig_sediment_diffusivity;
+    surfinfo.terrig_dpeth_coeff = param.control.terrig_depth_coefficient;
+
+    // create globle --> local map
+    surfinfo.arctop_nodes.clear();
+    for (size_t i=0; i<ntop; i++)
+        surfinfo.arctop_nodes[(*surfinfo.top_nodes)[i]] = i;
+    surfinfo.dh = new double_vec(ntop,0.);
+    surfinfo.dhacc = new double_vec(var.nnode,0);
+    surfinfo.edhacc = new array_t(var.nelem,0);
+    surfinfo.edhacc_ind = new segment_t(etop);
+    surfinfo.top_facet_elems = new int_vec(etop,0);
+    surfinfo.elem_and_nodes = new segment_t(etop);
+    surfinfo.node_and_elems = new segment_t(ntop);
+    surfinfo.nelem_with_node = new int_vec(ntop,0);
+    surfinfo.node_and_nodes = new int_vec2D(ntop,int_vec());
+    surfinfo.arcelem_and_nodes_num = new int_map2D(etop);
+
+    surfinfo.dh_oc = new double_vec(ntop,0.);
+    surfinfo.dhacc_oc = new double_vec(var.nnode,0);
+    surfinfo.edhacc_oc = new array_t(var.nelem);
+    surfinfo.edhacc_ind_oc = new segment_t(etop);
+
+    surfinfo.src_locs = new double_vec(2,0.);
+
+    surfinfo.total_dx = new double_vec(var.nnode,0.);
+    surfinfo.total_slope = new double_vec(var.nnode,0.);
+
+    for (size_t i=0; i<etop; i++) {
+        auto j = (*(var.bfacets[iboundz1]))[i];
+        int e = j.first;
+        int f = j.second;
+
+        (*surfinfo.top_facet_elems)[i] = e;
+        // create globle-local map
+//        surfinfo.arctop_facet_elems[e] = i;
+
+        // the nodes of element
+        int n[NDIMS];
+
+        for (int k=0; k<NDIMS; k++) {
+            n[k] = surfinfo.arctop_nodes[(*var.connectivity)[e][NODE_OF_FACET[f][k]]];
+            (*surfinfo.elem_and_nodes)[i][k] = n[k];
+            (*surfinfo.arcelem_and_nodes_num)[i][n[k]]= k;
+            (*surfinfo.edhacc_ind)[i][k] = n[k];
+        }
+        for (int k=0; k<NDIMS; k++) {
+            // store the elements connect to node
+            (*surfinfo.node_and_elems)[n[k]][(*surfinfo.nelem_with_node)[n[k]]] = i;
+            (*surfinfo.nelem_with_node)[n[k]]++;
+
+            // store the nodes connect to ndoe
+            for (int l=0; l<NDIMS; l++)
+                if (k != l)
+                    (*surfinfo.node_and_nodes)[n[k]].push_back(n[l]);
+        }
+    }
+
+    //***** to do *****
+//    surface_edhacc_geometry_interpolation(var,info);
+
+}
 namespace {
 
     struct OrderedInt
@@ -1670,7 +1921,7 @@ void create_boundary_facets(Variables& var)
                 if (af == bf) {
                     for (int k=0; k<nbdrytypes; ++k) {
                         if (flag == (1U << k)) {
-                            var.bfacets[k].push_back(std::make_pair(e,f));
+                            var.bfacets[k]->push_back(std::make_pair(e,f));
                             goto found_facet; // break out of nested loops
                         }
                     }
@@ -1718,102 +1969,6 @@ void create_support(Variables& var)
     // std::cout << "support:\n";
     // print(std::cout, *var.support);
     // std::cout << "\n";
-}
-
-
-void create_elem_groups(Variables& var)
-{
-    var.egroups.clear();
-
-#ifdef USE_OMP
-
-    /* T: # of openmp threads
-     *
-     * Decompose the mesh into 2T bands.
-     * The band is ordered as: 0, 1, 2, ...., 2T-2, 2T-1.
-     * Band-N and Band-(N+2) will be disjoint and not sharing any nodes.
-     */
-
-    int nthreads = omp_get_max_threads();
-    int ngroups = 2 * nthreads;
-    int el_per_group = var.nelem / ngroups;
-
-    for(int i=0; i<ngroups; i++)
-        var.egroups.push_back(i*el_per_group);
-    var.egroups.push_back(var.nelem);
-
-    //
-    // check that Group N and N+2 do not share nodes
-    //
-
-    int_vec min_idx(ngroups), max_idx(ngroups); // the smallest/largest node number in the group
-    for(int i=0; i<ngroups; i++) {
-        int ndmin = std::numeric_limits<int>::max();
-        int ndmax = -1;
-        for(int e=var.egroups[i]; e<var.egroups[i+1]; ++e) {
-            const int *conn = (*var.connectivity)[e];
-            for(int j=0; j<NODES_PER_ELEM; j++) {
-                ndmin = std::min(ndmin, conn[j]);
-                ndmax = std::max(ndmax, conn[j]);
-            }
-        }
-        min_idx[i] = ndmin;
-        max_idx[i] = ndmax;
-    }
-
-    for(int i=0; i<ngroups-2; i+=2) {
-        if(max_idx[i] >= min_idx[i+2]) {
-            // a loud warning
-            std::cerr << "\n\n****************************************************************\n"
-                      << "*    Warning: egroup-" << i << " and egroup-" << i+2 << " might share common nodes.\n"
-                      << "*             There is some risk of racing conditions.\n"
-                      << "*             Please either increase the resolution or\n"
-                      << "*             decrease the number OpenMP threads.\n"
-                      << "****************************************************************\n\n";
-
-            std::cerr << "egroups: ";
-            print(std::cerr, var.egroups);
-            std::cerr << '\n';
-            std::cerr << "Max. node number in the egroup: ";
-            print(std::cerr, max_idx);
-            std::cerr << '\n';
-            std::cerr << "Min. node number in the egroup: ";
-            print(std::cerr, min_idx);
-            std::cerr << '\n';
-        }
-    }
-    for(int i=1; i<ngroups-1; i+=2) {
-        if(max_idx[i] >= min_idx[i+2]) {
-            // a loud warning
-            std::cerr << "\n\n****************************************************************\n"
-                      << "*    Warning: egroup-" << i << " and egroup-" << i+2 << " might share common nodes.\n"
-                      << "*             There is some risk of racing conditions.\n"
-                      << "*             Please either increase the resolution or\n"
-                      << "*             decrease the number OpenMP threads.\n"
-                      << "****************************************************************\n\n";
-
-            std::cerr << "egroups: ";
-            print(std::cerr, var.egroups);
-            std::cerr << '\n';
-            std::cerr << "Max. node number in the egroup: ";
-            print(std::cerr, max_idx);
-            std::cerr << '\n';
-            std::cerr << "Min. node number in the egroup: ";
-            print(std::cerr, min_idx);
-            std::cerr << '\n';
-        }
-    }
-
-
-#else
-
-    // Not using openmp, only need one group for all elements
-    var.egroups.push_back(0);
-    var.egroups.push_back(var.nelem);
-
-#endif
-
-    // print(std::cout, var.egroups);
 }
 
 

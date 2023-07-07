@@ -22,6 +22,7 @@ from __future__ import print_function, unicode_literals
 import sys, os
 import base64, zlib, glob
 import numpy as np
+from scipy import spatial
 from numpy.linalg  import eigh
 from Dynearthsol import Dynearthsol
 
@@ -35,11 +36,37 @@ output_in_cwd = False
 # Save indivisual components?
 output_tensor_components = False
 
-# Save principal stresses
-output_principal_stress = False
+# Save principle stresses
+output_principle_stress = False
 
 # Save markers?
-output_markers = False
+output_markers = True
+
+########################
+# Is numpy version < 1.8?
+eigh_vectorized = True
+npversion = np.__version__.split('.')
+npmajor = int(npversion[0])
+npminor = int(npversion[1])
+if npmajor < 1 or (npmajor == 1 and npminor < 8):
+    eigh_vectorized = False
+
+class Filter():
+
+  def marker(self,par,x, z, m, t):
+    ind = (par.xmin <= x) * (x <= par.xmax) * \
+          (par.zmin <= z) * (z <= par.zmax)
+    x = x[ind]
+    z = z[ind]
+    m = m[ind]
+    t = t[ind]
+    return x, z, m, t
+
+  def node(self,x,z,f):
+    ind = (f >= 32 ) * (f <= 34)
+    x = x[ind]
+    z = z[ind]
+    return x, z
 
 ########################
 # Is numpy version < 1.8?
@@ -102,6 +129,50 @@ def main(modelname, start, end, delta):
             disp = np.zeros((nnode, 3), dtype=coord.dtype)
             disp[:,0:des.ndims] = coord - coord0
             vtk_dataarray(fvtu, disp, 'total displacement', 3)
+            horizon = np.zeros((nnode), dtype=coord.dtype)
+            horizon[:] = coord0[:,-1]
+            vtk_dataarray(fvtu, horizon, 'horizon', 1)
+
+
+
+
+            '''
+            # find nearest neighbour marker of nodes
+            markersetname = 'markerset'
+            marker_data = des.read_markers(frame, markersetname)
+            nmarkers = marker_data['size']
+            if nmarkers <= 0:
+                raise MarkerSizeError()
+            marker_coord = marker_data[markersetname + '.coord']
+            marker_mattype = marker_data[markersetname + '.mattype']
+            kdtree = spatial.KDTree(marker_coord)
+            nn = kdtree.query(coord,1)
+            nnmattype = np.zeros((nnode), dtype=marker_mattype.dtype)
+
+            try:
+                marker_time = marker_data[markersetname + '.time']
+                nnchron = np.zeros((nnode), dtype=marker_time.dtype)
+                nnchron[:] = marker_time[nn[1]]
+            except:
+                pass
+
+            # abjust horizon of sediment node
+            horizon_max = max(horizon)
+            for j in range(nnode):
+                if marker_mattype[nn[1][j]] == 3:
+                    horizon[j] = horizon_max
+                else:
+                    try:
+                        nnchron[j] = 0.
+                    except:
+                        pass
+
+
+            try:
+                vtk_dataarray(fvtu, nnchron, 'chron', 1)
+            except:
+                pass
+            '''
 
             convert_field(des, frame, 'temperature', fvtu)
             convert_field(des, frame, 'bcflag', fvtu)
@@ -155,7 +226,7 @@ def main(modelname, start, end, delta):
                     vtk_dataarray(fvtu, stress[:,d] - tI, 'stress ' + des.component_names[d] + ' dev.')
                 for d in range(des.ndims, des.nstr):
                     vtk_dataarray(fvtu, stress[:,d], 'stress ' + des.component_names[d])
-            if output_principal_stress:
+            if output_principle_stress:
                 s1, s3 = compute_principal_stress(stress)
                 vtk_dataarray(fvtu, s1, 's1', 3)
                 vtk_dataarray(fvtu, s3, 's3', 3)
@@ -168,6 +239,33 @@ def main(modelname, start, end, delta):
 
             # element number for debugging
             vtk_dataarray(fvtu, np.arange(nelem, dtype=np.int32), 'elem number')
+
+            # melting mantle
+            from scipy import interpolate
+            material = des.read_field(frame, 'material')
+            temperature = des.read_field(frame, 'temperature')
+            connectivity = des.read_field(frame, 'connectivity')
+            # Calculate the temperature of element
+            ecoord = np.array([coord[connectivity[e,:],:].mean(axis=0) for e in range(nelem)])
+            etemp = np.array([temperature[connectivity[e,:]].mean(axis=0) for e in range(nelem)])
+
+            melting = np.zeros(sI.shape)
+
+            # find surface
+            bcflag = des.read_field(frame, 'bcflag')
+            filter = Filter()
+            surfx, surfz = filter.node(coord[:,0],coord[:,1],bcflag)
+            orders = np.argsort(surfx)
+            surface = np.vstack((surfx[orders],surfz[orders]))
+            depth = np.interp(ecoord[:,0], surface[0], surface[1]) - ecoord[:,1]
+            pressure = depth * 9.8 * 2900.
+            # Hirschmann, 2000  https://doi.org/10.1029/2000GC000070
+            # Assumeing solidus is a line between (0 GPa, 1120 C) - (7 GPa, 1800 C)
+            #                                                    adibatic  themral gradient 0.3 C/km
+            melting[:] = -1000
+            ind = material < 2
+            melting[ind] = (etemp[ind]-273. + depth[ind]*3.e-4) - (1120 + (680./7.e9)*pressure[ind])
+            vtk_dataarray(fvtu, melting, 'melting')
 
             fvtu.write('  </CellData>\n')
 
@@ -239,11 +337,17 @@ def output_vtp_file(des, frame, filename, markersetname, time_in_yr, step):
         # point-based data
         fvtp.write('  <PointData>\n')
         name = markersetname + '.mattype'
-        vtk_dataarray(fvtp, marker_data[name], name)
+        marker_type = marker_data[name]
+        vtk_dataarray(fvtp, marker_type, name)
         name = markersetname + '.elem'
         vtk_dataarray(fvtp, marker_data[name], name)
         name = markersetname + '.id'
         vtk_dataarray(fvtp, marker_data[name], name)
+        for name in (markersetname + '.time',markersetname + '.z', markersetname + '.distance',markersetname+'.slope'):    
+            try:
+                vtk_dataarray(fvtp, marker_data[name], name)
+            except:
+                pass
         fvtp.write('  </PointData>\n')
 
         # point coordinates
@@ -327,12 +431,12 @@ def vtk_dataarray(f, data, data_name=None, data_comps=None):
     if output_in_binary:
         header = np.zeros(4, dtype=np.int32)
         header[0] = 1
-        a = data.tostring()
+        a = data.tobytes()
         header[1] = len(a)
         header[2] = len(a)
         b = zlib.compress(a)
         header[3] = len(b)
-        f.write(base64.standard_b64encode(header.tostring()).decode('ascii'))
+        f.write(base64.standard_b64encode(header.tobytes()).decode('ascii'))
         f.write(base64.standard_b64encode(b).decode('ascii'))
     else:
         data.tofile(f, sep=' ')
@@ -488,7 +592,7 @@ if __name__ == '__main__':
     if '-c' in sys.argv:
         output_in_cwd = True
     if '-p' in sys.argv:
-        output_principal_stress = True
+        output_principle_stress = True
     if '-t' in sys.argv:
         output_tensor_components = True
     if '-m' in sys.argv:
