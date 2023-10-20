@@ -6,3 +6,8 @@ jobs:
     steps:
       - name: Greeting!
         run: echo hello world
+  build_on_ubuntu:
+    runs-on: ubuntu-latest
+    steps:
+      - name: run make
+        run: make
