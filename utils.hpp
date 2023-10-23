@@ -1,50 +1,18 @@
 #ifndef DYNEARTHSOL3D_UTILS_HPP
 #define DYNEARTHSOL3D_UTILS_HPP
 
+#include "parameters.hpp"
 #include <cmath>
 #include <iostream>
 #include <vector>
-
-/////////////////////////////////////////////////////////////////////
-
-class ElemFunc  // base class for functor used in loop_all_elem()
-{
-public:
-    virtual void operator()(int e) = 0;
-    virtual ~ElemFunc() {};
-};
-
-
-inline void loop_all_elem(const std::vector<int> &egroups, ElemFunc &functor)
-{
-#ifdef USE_OMP
-    // See mesh.cxx::create_elem_groups() for parallel strategy
-
-    // loop over elements in even element groups
-    #pragma omp parallel for default(none) shared(egroups, functor)
-    for (std::size_t i=0; i<egroups.size()-1; i+=2) {
-        for (int e=egroups[i]; e<egroups[i+1]; ++e)
-            functor(e);
-    }
-
-    // loop over elements in odd element groups
-    #pragma omp parallel for default(none) shared(egroups, functor)
-    for (std::size_t i=1; i<egroups.size()-1; i+=2) {
-        for (int e=egroups[i]; e<egroups[i+1]; ++e)
-            functor(e);
-    }
-
+#include <cfloat>
+#include <math.h>
+#include <iomanip>
+#if defined(_WIN32)
+#include <windows.h>
 #else
-
-    // loop over all elements sequentially
-    for (int e=egroups[0]; e<egroups[egroups.size()-1]; ++e)
-        functor(e);
-
+#include <time.h>
 #endif
-}
-
-/////////////////////////////////////////////////////////////////////
-
 
 static void print(std::ostream& os, const double& x)
 {
@@ -125,6 +93,48 @@ static double second_invariant(const double* t)
      * defined as: td = deviatoric(t); sqrt( td(i,j) * td(i,j) / 2)
      */
     return std::sqrt(second_invariant2(t));
+}
+
+
+static int findNearestNeighbourIndex( double x_new, const double_vec& x )
+{
+    /* find nearest neighbour index for interpolation
+     * x vector only can be ascending
+     */
+    double dist = DBL_MAX;
+    int idx = -1;
+    for (size_t i = 0; i < x.size(); ++i ) {
+        double newDist = x_new - x[i];
+        if ( newDist >= 0 && newDist <= dist ) {
+            dist = newDist;
+            idx = i;
+        }
+    }
+
+    return idx;
+}
+
+
+static int64_t get_nanoseconds() {
+    #if defined(_WIN32)
+    LARGE_INTEGER frequency, counter;
+    QueryPerformanceFrequency(&frequency);
+    QueryPerformanceCounter(&counter);
+    return (int64_t)((double)counter.QuadPart / frequency.QuadPart * 1e9);
+    #else
+    timespec ts;
+    clock_gettime(CLOCK_MONOTONIC, &ts);
+    return (int64_t)ts.tv_sec * 1e9 + ts.tv_nsec;
+    #endif
+}
+
+static void print_time_ns(const int64_t duration) {
+    int hours = duration / (int64_t)3600000000000;
+    int minutes = (duration % (int64_t)3600000000000) / (int64_t)60000000000;
+    double seconds = (duration % (int64_t)60000000000) / 1e9;
+    std::cout << std::setw(3) << std::setfill('0') << hours << ":"
+    << std::setw(2) << std::setfill('0') << minutes << ":"
+    << std::setw(9) << std::fixed << std::setprecision(6) << std::setfill('0') << seconds;
 }
 
 #endif

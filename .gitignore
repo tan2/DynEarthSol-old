@@ -18,3 +18,7 @@ libadaptivity/Makefile
 libadaptivity/*/Makefile
 confdefs.h
 libadaptivity/include
+tetgen/tetgen
+triangle/triangle
+.vscode
+*.code-workspace

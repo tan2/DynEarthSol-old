@@ -512,11 +512,10 @@ void update_stress(const Variables& var, tensor_t& stress,
                    tensor_t& strain, double_vec& plstrain,
                    double_vec& delta_plstrain, tensor_t& strain_rate)
 {
-    const int rheol_type = var.mat->rheol_type;
 
     #pragma omp parallel for default(none)                           \
         shared(var, stress, stressyy, dpressure, strain, plstrain, delta_plstrain, \
-               strain_rate, rheol_type, std::cerr)
+               strain_rate, std::cerr)
     for (int e=0; e<var.nelem; ++e) {
         // stress, strain and strain_rate of this element
         double* s = stress[e];
@@ -545,7 +544,7 @@ void update_stress(const Variables& var, tensor_t& stress,
             de[i] = edot[i] * var.dt;
         }
 
-        switch (rheol_type) {
+        switch (var.mat->rheol_type) {
         case MatProps::rh_elastic:
             {
                 double bulkm = var.mat->bulkm(e);
@@ -634,7 +633,7 @@ void update_stress(const Variables& var, tensor_t& stress,
             }
             break;
         default:
-            std::cerr << "Error: unknown rheology type: " << rheol_type << "\n";
+            std::cerr << "Error: unknown rheology type: " << var.mat->rheol_type << "\n";
             std::exit(1);
             break;
         }

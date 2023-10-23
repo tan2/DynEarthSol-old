@@ -4,12 +4,6 @@
 #include <iterator>  // For std::distance
 #include <iostream>
 
-#ifdef USE_OMP
-#include <omp.h>
-#else
-#include <ctime>
-#endif
-
 #include "constants.hpp"
 #include "parameters.hpp"
 #include "binaryio.hpp"
@@ -17,6 +11,7 @@
 #include "markerset.hpp"
 #include "matprops.hpp"
 #include "output.hpp"
+#include "utils.hpp"
 
 #ifdef WIN32
 #ifdef _MSC_VER
@@ -42,11 +37,7 @@ Output::~Output()
 
 void Output::write_info(const Variables& var, double dt)
 {
-#ifdef USE_OMP
-    double run_time = omp_get_wtime() - start_time;
-#else
-    double run_time = double(std::clock()) / CLOCKS_PER_SEC;
-#endif
+    double run_time = (get_nanoseconds() - start_time) * 1e-9;
 
     char buffer[256];
     std::snprintf(buffer, 255, "%6d\t%10d\t%12.6e\t%12.4e\t%12.6e\t%8d\t%8d\t%8d\n",
@@ -184,10 +175,14 @@ void Output::_write(const Variables& var, bool disable_averaging)
     }
 
     bin.close();
+    int64_t duration_ns = get_nanoseconds() - start_time;
     std::cout << "  Output # " << frame
               << ", step = " << var.steps
               << ", time = " << var.time / YEAR2SEC << " yr"
-              << ", dt = " << dt / YEAR2SEC << " yr.\n";
+              << ", dt = " << dt / YEAR2SEC << " yr"
+              << ", wt = ";
+    print_time_ns(duration_ns);
+    std::cout << "\n";
 
     frame ++;
 

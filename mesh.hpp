@@ -23,7 +23,6 @@ void create_boundary_flags(Variables& var);
 void create_boundary_nodes(Variables& var);
 void create_boundary_facets(Variables& var);
 void create_support(Variables& var);
-void create_elem_groups(Variables& var);
 void create_elemmarkers(const Param&, Variables&);
 void create_markers(const Param&, Variables&);
 void create_new_mesh(const Param&, Variables&);

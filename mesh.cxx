@@ -5,10 +5,6 @@
 #include <string>
 #include <sstream>
 
-#ifdef USE_OMP
-#include <omp.h>
-#endif
-
 #ifdef THREED
 
 #define TETLIBRARY
@@ -1718,102 +1714,6 @@ void create_support(Variables& var)
     // std::cout << "support:\n";
     // print(std::cout, *var.support);
     // std::cout << "\n";
-}
-
-
-void create_elem_groups(Variables& var)
-{
-    var.egroups.clear();
-
-#ifdef USE_OMP
-
-    /* T: # of openmp threads
-     *
-     * Decompose the mesh into 2T bands.
-     * The band is ordered as: 0, 1, 2, ...., 2T-2, 2T-1.
-     * Band-N and Band-(N+2) will be disjoint and not sharing any nodes.
-     */
-
-    int nthreads = omp_get_max_threads();
-    int ngroups = 2 * nthreads;
-    int el_per_group = var.nelem / ngroups;
-
-    for(int i=0; i<ngroups; i++)
-        var.egroups.push_back(i*el_per_group);
-    var.egroups.push_back(var.nelem);
-
-    //
-    // check that Group N and N+2 do not share nodes
-    //
-
-    int_vec min_idx(ngroups), max_idx(ngroups); // the smallest/largest node number in the group
-    for(int i=0; i<ngroups; i++) {
-        int ndmin = std::numeric_limits<int>::max();
-        int ndmax = -1;
-        for(int e=var.egroups[i]; e<var.egroups[i+1]; ++e) {
-            const int *conn = (*var.connectivity)[e];
-            for(int j=0; j<NODES_PER_ELEM; j++) {
-                ndmin = std::min(ndmin, conn[j]);
-                ndmax = std::max(ndmax, conn[j]);
-            }
-        }
-        min_idx[i] = ndmin;
-        max_idx[i] = ndmax;
-    }
-
-    for(int i=0; i<ngroups-2; i+=2) {
-        if(max_idx[i] >= min_idx[i+2]) {
-            // a loud warning
-            std::cerr << "\n\n****************************************************************\n"
-                      << "*    Warning: egroup-" << i << " and egroup-" << i+2 << " might share common nodes.\n"
-                      << "*             There is some risk of racing conditions.\n"
-                      << "*             Please either increase the resolution or\n"
-                      << "*             decrease the number OpenMP threads.\n"
-                      << "****************************************************************\n\n";
-
-            std::cerr << "egroups: ";
-            print(std::cerr, var.egroups);
-            std::cerr << '\n';
-            std::cerr << "Max. node number in the egroup: ";
-            print(std::cerr, max_idx);
-            std::cerr << '\n';
-            std::cerr << "Min. node number in the egroup: ";
-            print(std::cerr, min_idx);
-            std::cerr << '\n';
-        }
-    }
-    for(int i=1; i<ngroups-1; i+=2) {
-        if(max_idx[i] >= min_idx[i+2]) {
-            // a loud warning
-            std::cerr << "\n\n****************************************************************\n"
-                      << "*    Warning: egroup-" << i << " and egroup-" << i+2 << " might share common nodes.\n"
-                      << "*             There is some risk of racing conditions.\n"
-                      << "*             Please either increase the resolution or\n"
-                      << "*             decrease the number OpenMP threads.\n"
-                      << "****************************************************************\n\n";
-
-            std::cerr << "egroups: ";
-            print(std::cerr, var.egroups);
-            std::cerr << '\n';
-            std::cerr << "Max. node number in the egroup: ";
-            print(std::cerr, max_idx);
-            std::cerr << '\n';
-            std::cerr << "Min. node number in the egroup: ";
-            print(std::cerr, min_idx);
-            std::cerr << '\n';
-        }
-    }
-
-
-#else
-
-    // Not using openmp, only need one group for all elements
-    var.egroups.push_back(0);
-    var.egroups.push_back(var.nelem);
-
-#endif
-
-    // print(std::cout, var.egroups);
 }
 
 
