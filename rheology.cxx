@@ -1,3 +1,6 @@
+#ifdef USE_NPROF
+#include <nvToolsExt.h>
+#endif
 #include <cmath>
 #include <iostream>
 
@@ -512,6 +515,9 @@ void update_stress(const Variables& var, tensor_t& stress,
                    tensor_t& strain, double_vec& plstrain,
                    double_vec& delta_plstrain, tensor_t& strain_rate)
 {
+#ifdef USE_NPROF
+    nvtxRangePush(__FUNCTION__);
+#endif
 
     #pragma omp parallel for default(none)                           \
         shared(var, stress, stressyy, dpressure, strain, plstrain, delta_plstrain, \
@@ -642,4 +648,7 @@ void update_stress(const Variables& var, tensor_t& stress,
         // print(std::cerr, s, NSTR);
         // std::cerr << '\n';
     }
+#ifdef USE_NPROF
+    nvtxRangePop();
+#endif
 }

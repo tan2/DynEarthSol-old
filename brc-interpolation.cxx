@@ -1,3 +1,6 @@
+#ifdef USE_NPROF
+#include <nvToolsExt.h> 
+#endif
 #include "algorithm"
 #include "iostream"
 
@@ -18,6 +21,9 @@ typedef Array2D<double,NODES_PER_ELEM> brc_t;
 void interpolate_field(const brc_t &brc, const int_vec &el, const conn_t &connectivity,
                        const double_vec &source, double_vec &target)
 {
+#ifdef USE_NPROF
+    nvtxRangePush(__FUNCTION__);
+#endif
     #pragma omp parallel for default(none)          \
         shared(brc, el, connectivity, source, target)
     for (std::size_t i=0; i<target.size(); i++) {
@@ -29,12 +35,18 @@ void interpolate_field(const brc_t &brc, const int_vec &el, const conn_t &connec
         }
         target[i] = result;
     }
+#ifdef USE_NPROF
+    nvtxRangePop();
+#endif
 }
 
 
 void interpolate_field(const brc_t &brc, const int_vec &el, const conn_t &connectivity,
                        const array_t &source, array_t &target)
 {
+#ifdef USE_NPROF
+    nvtxRangePush(__FUNCTION__);
+#endif
     #pragma omp parallel for default(none)          \
         shared(brc, el, connectivity, source, target)
     for (std::size_t i=0; i<target.size(); i++) {
@@ -48,6 +60,9 @@ void interpolate_field(const brc_t &brc, const int_vec &el, const conn_t &connec
             target[i][d] = result;
         }
     }
+#ifdef USE_NPROF
+    nvtxRangePop();
+#endif
 }
 
 
@@ -58,6 +73,9 @@ void prepare_interpolation(const Variables &var,
                            const std::vector<int_vec> &old_support,
                            brc_t &brc, int_vec &el)
 {
+#ifdef USE_NPROF
+    nvtxRangePush(__FUNCTION__);
+#endif
     // for each new coord point, find the enclosing old element
 
     // ANN requires double** as input
@@ -186,6 +204,9 @@ void prepare_interpolation(const Variables &var,
     // std::cout << '\n';
     // print(std::cout, bar);
     // std::cout << '\n';
+#ifdef USE_NPROF
+    nvtxRangePop();
+#endif
 }
 
 } // anonymous namespace
@@ -196,6 +217,9 @@ void barycentric_node_interpolation(Variables &var,
                                     const array_t &old_coord,
                                     const conn_t &old_connectivity)
 {
+#ifdef USE_NPROF
+    nvtxRangePush(__FUNCTION__);
+#endif
     int_vec el(var.nnode);
     brc_t brc(var.nnode);
     prepare_interpolation(var, bary, old_coord, old_connectivity, *var.support, brc, el);
@@ -215,7 +239,9 @@ void barycentric_node_interpolation(Variables &var,
     interpolate_field(brc, el, old_connectivity, *var.coord0, *b);
     delete var.coord0;
     var.coord0 = b;
-
+#ifdef USE_NPROF
+    nvtxRangePop();
+#endif
 }
 
 

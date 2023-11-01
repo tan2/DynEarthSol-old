@@ -20,6 +20,7 @@ ndims = 3
 opt = 2
 openacc = 0
 openmp = 1
+nprof = 0
 useadapt = 0
 usemmg = 0
 adaptive_time_step = 0
@@ -64,7 +65,7 @@ else
 endif
 
 ## path to cuda's base directory
-CUDA_DIR = # /cluster/nvidia/hpc_sdk/Linux_x86_64/21.2/cuda
+CUDA_DIR = #/cluster/nvidia/hpc_sdk/Linux_x86_64/21.2/cuda
 
 ## path to Boost's base directory, if not in standard system location
 BOOST_ROOT_DIR =
@@ -179,7 +180,7 @@ else ifneq (, $(findstring icpc, $(CXX_BACKEND))) # if using intel compiler, tes
 		endif
 	endif
 else ifneq (, $(findstring nvc++, $(CXX)))
-	CXXFLAGS = -mno-fma -DNVCPP
+	CXXFLAGS = -mno-fma -Minfo=mp,accel
 	LDFLAGS =
 	TETGENFLAGS = 
 
@@ -200,7 +201,7 @@ else ifneq (, $(findstring nvc++, $(CXX)))
 	endif
 
 	ifeq ($(nprof), 1)
-		CXXFLAGS += -Minfo=mp,accel -I$(CUDA_DIR)/include -DUSE_NPROF
+		CXXFLAGS += -I$(CUDA_DIR)/include -DUSE_NPROF
 		LDFLAGS += -L$(CUDA_DIR)/lib64 -Wl,-rpath,$(CUDA_DIR)/lib64 -lnvToolsExt -g
 	endif
 else

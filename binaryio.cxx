@@ -1,3 +1,6 @@
+#ifdef USE_NPROF
+#include <nvToolsExt.h> 
+#endif
 #include <cstdio>
 #include <cstring>
 #include <iostream>
@@ -63,6 +66,9 @@ BinaryOutput::~BinaryOutput()
 
 void BinaryOutput::close()
 {
+#ifdef USE_NPROF
+    nvtxRangePush(__FUNCTION__);
+#endif
     if (f) {
         /* write header buffer to the beginning of file */
         std::fseek(f, 0, SEEK_SET);
@@ -73,6 +79,9 @@ void BinaryOutput::close()
 
     delete [] header;
     header = NULL;
+#ifdef USE_NPROF
+    nvtxRangePop();
+#endif
 }
 
 

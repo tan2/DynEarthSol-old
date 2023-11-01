@@ -1,3 +1,6 @@
+#ifdef USE_NPROF
+#include <nvToolsExt.h>
+#endif
 #include <algorithm>  // For std::max_element
 #include <cmath>
 #include <cstdio>
@@ -69,6 +72,9 @@ void Output::write_info(const Variables& var, double dt)
 
 void Output::_write(const Variables& var, bool disable_averaging)
 {
+#ifdef USE_NPROF
+    nvtxRangePush(__FUNCTION__);
+#endif
     double dt = var.dt;
     double inv_dt = 0; // only used when is_averaged
     if (!disable_averaging && is_averaged) {
@@ -200,6 +206,9 @@ void Output::_write(const Variables& var, bool disable_averaging)
                 }
             }
     }
+#ifdef USE_NPROF
+    nvtxRangePop();
+#endif
 }
 
 
@@ -260,6 +269,9 @@ void Output::average_fields(Variables& var)
 
 void Output::write_checkpoint(const Param& param, const Variables& var)
 {
+#ifdef USE_NPROF
+    nvtxRangePush(__FUNCTION__);
+#endif
     char filename[256];
     std::snprintf(filename, 255, "%s.chkpt.%06d", modelname.c_str(), frame);
     BinaryOutput bin(filename);
@@ -280,5 +292,8 @@ void Output::write_checkpoint(const Param& param, const Variables& var)
 
     for (auto ms=var.markersets.begin(); ms!=var.markersets.end(); ++ms)
         (*ms)->write_chkpt_file(bin);
+#ifdef USE_NPROF
+    nvtxRangePop();
+#endif
 }
 

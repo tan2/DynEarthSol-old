@@ -1,3 +1,6 @@
+#ifdef USE_NPROF
+#include <nvToolsExt.h>
+#endif
 #include <cstring>
 #include <iostream> // for std::cerr
 #include <time.h> // for time()
@@ -104,6 +107,9 @@ void MarkerSet::random_eta( double *eta )
 
 void MarkerSet::append_marker( const double *eta, int el, int mt )
 {
+#ifdef USE_NPROF
+    nvtxRangePush(__FUNCTION__);
+#endif
     // Ensure sufficient array size
     if( _nmarkers == _reserved_space ) {
         // Resize the marker-related arrays if necessary.
@@ -131,14 +137,23 @@ void MarkerSet::append_marker( const double *eta, int el, int mt )
 
     ++_nmarkers;
     ++_last_id;
+#ifdef USE_NPROF
+    nvtxRangePop();
+#endif
 }
 
 
 void MarkerSet::append_random_marker_in_elem( int el, int mt )
 {
+#ifdef USE_NPROF
+    nvtxRangePush(__FUNCTION__);
+#endif
     double eta[NODES_PER_ELEM];
     random_eta(eta);
     append_marker(eta, el, mt);
+#ifdef USE_NPROF
+    nvtxRangePop();
+#endif
 }
 
 
@@ -339,12 +354,18 @@ int MarkerSet::custom_initial_mattype( const Param& param, const Variables &var,
 
 void MarkerSet::remove_marker(int i)
 {
+#ifdef USE_NPROF
+    nvtxRangePush(__FUNCTION__);
+#endif
     // Replace marker i by the last marker.
     --_nmarkers;
     std::memcpy( (*_eta)[i], (*_eta)[_nmarkers], sizeof(double)*(NODES_PER_ELEM) );
     (*_id)[i] = (*_id)[_nmarkers];
     (*_elem)[i] = (*_elem)[_nmarkers];
     (*_mattype)[i] = (*_mattype)[_nmarkers];
+#ifdef USE_NPROF
+    nvtxRangePop();
+#endif
 }
 
 
@@ -430,6 +451,9 @@ void MarkerSet::read_chkpt_file(Variables &var, BinaryInput &bin)
 
 void MarkerSet::write_save_file(const Variables &var, BinaryOutput &bin) const
 {
+#ifdef USE_NPROF
+    nvtxRangePush(__FUNCTION__);
+#endif
     int_vec itmp(1);
     itmp[0] = _nmarkers;
     bin.write_array(itmp, (_name + " size").c_str(), itmp.size());
@@ -456,6 +480,9 @@ void MarkerSet::write_save_file(const Variables &var, BinaryOutput &bin) const
     bin.write_array(*_mattype, (_name + ".mattype").c_str(), _nmarkers);
     bin.write_array(*_id, (_name + ".id").c_str(), _nmarkers);
 
+#ifdef USE_NPROF
+    nvtxRangePop();
+#endif
 }
 
 
@@ -541,6 +568,9 @@ namespace {
     void replenish_markers_with_mattype_0(const Param& param, Variables &var,
                                           int e, int num_marker_in_elem)
     {
+#ifdef USE_NPROF
+        nvtxRangePush(__FUNCTION__);
+#endif
         while( num_marker_in_elem < param.markers.min_num_markers_in_element ) {
             const int mt = 0;
             var.markersets[0]->append_random_marker_in_elem(e, mt);
@@ -551,12 +581,18 @@ namespace {
             ++(*var.elemmarkers)[e][mt];
             ++num_marker_in_elem;
         }
+#ifdef USE_NPROF
+        nvtxRangePop();
+#endif
     }
 
 
     void replenish_markers_with_mattype_from_cpdf(const Param& param, Variables &var,
                                                   int e, int num_marker_in_elem)
     {
+#ifdef USE_NPROF
+        nvtxRangePush(__FUNCTION__);
+#endif
         // cummulative probability density function of mattype
         double_vec cpdf(param.mat.nmat, 0);
 
@@ -611,12 +647,18 @@ namespace {
             ++(*var.elemmarkers)[e][mt];
             ++num_marker_in_elem;
         }
+#ifdef USE_NPROF
+        nvtxRangePop();
+#endif
     }
 
 
     void replenish_markers_with_mattype_from_nn_preparation(const Param& param, const Variables &var,
                                                             ANNkd_tree *&kdtree, double **&points)
     {
+#ifdef USE_NPROF
+        nvtxRangePush(__FUNCTION__);
+#endif
         const MarkerSet &ms = *var.markersets[0];
         const int nmarkers = ms.get_nmarkers();
 
@@ -640,6 +682,9 @@ namespace {
         }
 
         kdtree = new ANNkd_tree(points, nmarkers, NDIMS);
+#ifdef USE_NPROF
+        nvtxRangePop();
+#endif
     }
 
 
@@ -647,6 +692,9 @@ namespace {
                                                 ANNkd_tree &kdtree,
                                                 int e, int num_marker_in_elem)
     {
+#ifdef USE_NPROF
+        nvtxRangePush(__FUNCTION__);
+#endif
         MarkerSet &ms = *var.markersets[0];
         while( num_marker_in_elem < param.markers.min_num_markers_in_element ) {
             double eta[NODES_PER_ELEM];
@@ -680,6 +728,9 @@ namespace {
             ++(*var.elemmarkers)[e][mt];
             ++num_marker_in_elem;
         }
+#ifdef USE_NPROF
+        nvtxRangePop();
+#endif
     }
 
 } // anonymous namespace
@@ -688,6 +739,9 @@ namespace {
 void remap_markers(const Param& param, Variables &var, const array_t &old_coord,
                    const conn_t &old_connectivity)
 {
+#ifdef USE_NPROF
+    nvtxRangePush(__FUNCTION__);
+#endif
     // Re-create elemmarkers
     delete var.elemmarkers;
     if (param.control.has_hydration_processes)
@@ -750,6 +804,9 @@ void remap_markers(const Param& param, Variables &var, const array_t &old_coord,
         delete [] points[0];
         delete [] points;
     }
+#ifdef USE_NPROF
+    nvtxRangePop();
+#endif
 }
 
 

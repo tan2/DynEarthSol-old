@@ -1,4 +1,7 @@
 #include <iostream>
+#ifdef USE_NPROF
+#include <nvToolsExt.h> 
+#endif
 #include <limits>
 
 
@@ -67,6 +70,9 @@ void init_var(const Param& param, Variables& var)
 
 void init(const Param& param, Variables& var)
 {
+#ifdef USE_NPROF
+    nvtxRangePush(__FUNCTION__);
+#endif
     std::cout << "Initializing mesh and field data...\n";
 
     create_new_mesh(param, var);
@@ -99,11 +105,17 @@ void init(const Param& param, Variables& var)
     initial_weak_zone(param, var, *var.plstrain);
 
     phase_changes_init(param, var);
+#ifdef USE_NPROF
+    nvtxRangePop();
+#endif
 }
 
 
 void restart(const Param& param, Variables& var)
 {
+#ifdef USE_NPROF
+    nvtxRangePush(__FUNCTION__);
+#endif
     std::cout << "Initializing mesh and field data from checkpoints...\n";
 
     /* Reading info file */
@@ -216,26 +228,44 @@ void restart(const Param& param, Variables& var)
     }
 
     phase_changes_init(param, var);
+#ifdef USE_NPROF
+    nvtxRangePop();
+#endif
 }
 
 
 void update_mesh(const Param& param, Variables& var)
 {
+#ifdef USE_NPROF
+    nvtxRangePush(__FUNCTION__);
+#endif
     update_coordinate(var, *var.coord);
     surface_processes(param, var, *var.coord);
 
+#ifdef USE_NPROF
+    nvtxRangePush("swap vectors");
+#endif
     var.volume->swap(*var.volume_old);
+#ifdef USE_NPROF
+    nvtxRangePop();
+#endif
     compute_volume(*var.coord, *var.connectivity, *var.volume);
     compute_mass(param, var, *var.connectivity, *var.volume, *var.mat,
                  var.max_vbc_val, *var.volume_n, *var.mass, *var.tmass, *var.tmp_result,
                  *var.support);
     compute_shape_fn(var, *var.coord, *var.connectivity, *var.volume,
                      *var.shpdx, *var.shpdy, *var.shpdz);
+#ifdef USE_NPROF
+    nvtxRangePop();
+#endif
 }
 
 
 void isostasy_adjustment(const Param &param, Variables &var)
 {
+#ifdef USE_NPROF
+    nvtxRangePush(__FUNCTION__);
+#endif
     std::cout << "Adjusting isostasy for " << param.ic.isostasy_adjustment_time_in_yr << " yrs...\n";
 
     var.dt = compute_dt(param, var);
@@ -270,6 +300,9 @@ void isostasy_adjustment(const Param &param, Variables &var)
 
     }
     std::cout << "Adjusted isostasy for " << iso_steps << " steps.\n";
+#ifdef USE_NPROF
+    nvtxRangePop();
+#endif
 }
 
 
@@ -319,6 +352,9 @@ int main(int argc, const char* argv[])
 
     std::cout << "Starting simulation...\n";
     do {
+#ifdef USE_NPROF
+        nvtxRangePush("dynearthsol");
+#endif
         var.steps ++;
         var.time += var.dt;
 
@@ -407,6 +443,9 @@ int main(int argc, const char* argv[])
                 }
             }
         }
+#ifdef USE_NPROF
+        nvtxRangePop();
+#endif
 
     } while (var.steps < param.sim.max_steps && var.time <= param.sim.max_time_in_yr * YEAR2SEC);
 

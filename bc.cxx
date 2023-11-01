@@ -1,3 +1,6 @@
+#ifdef USE_NPROF
+#include <nvToolsExt.h> 
+#endif
 #include <iostream>
 
 #include "constants.hpp"
@@ -178,6 +181,9 @@ void create_boundary_normals(const Variables &var, double bnormals[nbdrytypes][N
 
 void apply_vbcs(const Param &param, const Variables &var, array_t &vel)
 {
+#ifdef USE_NPROF
+    nvtxRangePush(__FUNCTION__);
+#endif
     // meaning of vbc flags (odd: free; even: fixed) --
     // 0: all components free
     // 1: normal component fixed, shear components free
@@ -191,6 +197,7 @@ void apply_vbcs(const Param &param, const Variables &var, array_t &vel)
     // diverging x-boundary
     #pragma omp parallel for default(none) \
         shared(bc, var, vel)
+    #pragma acc parallel loop
     for (int i=0; i<var.nnode; ++i) {
 
         // fast path: skip nodes not on boundary
@@ -487,11 +494,17 @@ void apply_vbcs(const Param &param, const Variables &var, array_t &vel)
             }
         }
     }
+#ifdef USE_NPROF
+    nvtxRangePop();
+#endif
 }
 
 
 void apply_stress_bcs(const Param& param, const Variables& var, array_t& force)
 {
+#ifdef USE_NPROF
+    nvtxRangePush(__FUNCTION__);
+#endif
     // TODO: add general stress (Neumann) bcs
 
     if (param.control.gravity == 0) return;
@@ -509,8 +522,12 @@ void apply_stress_bcs(const Param& param, const Variables& var, array_t& force)
 
         const auto& bdry = var.bfacets[i];
         const auto& coord = *var.coord;
+        const int nbound = static_cast<int>(bdry.size());
+        array_t tmp_val(nbound);
+        segment_t tmp_ind(nbound);
+
         // loops over all bdry facets
-        for (int n=0; n<static_cast<int>(bdry.size()); ++n) {
+        for (int n=0; n<nbound; ++n) {
             // this facet belongs to element e
             int e = bdry[n].first;
             // this facet is the f-th facet of e
@@ -547,12 +564,21 @@ void apply_stress_bcs(const Param& param, const Variables& var, array_t& force)
             }
 
             // lithostatc support - Archimed force (normal to the surface)
-            for (int j=0; j<NODES_PER_FACET; ++j) {
-                int n = conn[NODE_OF_FACET[f][j]];
-                for (int d=0; d<NDIMS; ++d) {
-                    force[n][d] -= p * normal[d] / NODES_PER_FACET;
-                }
-            }
+            for (int j=0; j<NODES_PER_FACET; ++j)
+                tmp_ind[n][j] = conn[NODE_OF_FACET[f][j]];
+            for (int d=0; d<NDIMS; ++d)
+                tmp_val[n][d] = p * normal[d] / NODES_PER_FACET;
+        }
+
+        for (int jj=0; jj<var.bnodes[i].size(); jj++) {
+            int node = var.bnodes[i][jj];
+            for (int facet=0; facet<nbound; ++facet)
+                for (int j=0; j<NODES_PER_FACET; ++j)
+                    if (tmp_ind[facet][j] == node) {
+                        for (int d=0; d<NDIMS; ++d)
+                            force[node][d] -= tmp_val[facet][d];
+                        break;
+                    }
         }
     }
 
@@ -563,6 +589,9 @@ void apply_stress_bcs(const Param& param, const Variables& var, array_t& force)
             force[n][NDIMS-1] -= param.bc.elastic_foundation_constant * ((*var.coord)[n][NDIMS-1] - (*var.coord0)[n][NDIMS-1]);
         }
     }
+#ifdef USE_NPROF
+    nvtxRangePop();
+#endif
 }
 
 
@@ -571,6 +600,9 @@ namespace {
     void simple_diffusion(const Variables& var, array_t& coord,
                           double surface_diffusivity)
     {
+#ifdef USE_NPROF
+        nvtxRangePush(__FUNCTION__);
+#endif
         /* Diffusing surface topography to simulate the effect of erosion and
          * sedimentation.
          */
@@ -691,6 +723,9 @@ namespace {
 
         // std::cout << "max erosion / sedimentation rate (cm/yr):  "
         //           << max_dh / var.dt * 100 * YEAR2SEC << '\n';
+#ifdef USE_NPROF
+        nvtxRangePop();
+#endif
     }
 
 
@@ -724,6 +759,9 @@ namespace {
 
 void surface_processes(const Param& param, const Variables& var, array_t& coord)
 {
+#ifdef USE_NPROF
+    nvtxRangePush(__FUNCTION__);
+#endif
     switch (param.control.surface_process_option) {
     case 0:
         // no surface process
@@ -738,6 +776,9 @@ void surface_processes(const Param& param, const Variables& var, array_t& coord)
         std::cout << "Error: unknown surface process option: " << param.control.surface_process_option << '\n';
         std::exit(1);
     }
+#ifdef USE_NPROF
+    nvtxRangePop();
+#endif
 }
 
 

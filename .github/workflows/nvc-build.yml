@@ -1,0 +1,49 @@
+name: nvc build
+
+on:
+  push:
+    branches: [ "master", "merge_openacc" ]
+    paths-ignore:
+      - '**/README.md'
+  pull_request:
+    branches: [ "master" ]
+    paths-ignore:
+      - '**/README.md'
+
+env:
+  NVHPC_PATH: /opt/nvidia/hpc_sdk/Linux_x86_64/23.9
+  
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+    - uses: actions/checkout@v3
+    - name: get boost
+      run: sudo apt install libboost-program-options-dev
+    - name: make 2d CPU
+      run: make cleanall; make ndims=2
+    - name: make 3d CPU
+      run: make cleanall; make ndims=3
+
+    - name: get nvidia hpc-sdk
+      run: |
+        curl https://developer.download.nvidia.com/hpc-sdk/ubuntu/DEB-GPG-KEY-NVIDIA-HPC-SDK | sudo gpg --dearmor -o /usr/share/keyrings/nvidia-hpcsdk-archive-keyring.gpg
+        echo 'deb [signed-by=/usr/share/keyrings/nvidia-hpcsdk-archive-keyring.gpg] https://developer.download.nvidia.com/hpc-sdk/ubuntu/amd64 /' | sudo tee /etc/apt/sources.list.d/nvhpc.list
+        sudo apt-get update -y
+        sudo apt-get install -y nvhpc
+
+    - name: Set env for nvc++
+      run: echo "PATH=$PATH:$NVHPC_PATH/compilers/bin" >> $GITHUB_ENV
+    - name: make 2d CPU with nvidia profiling tools
+      run: make cleanall; make CUDA_DIR=$NVHPC_PATH/cuda ndims=2 nprof=1
+    - name: make 3d CPU with nvidia profiling tools
+      run: make cleanall; make CUDA_DIR=$NVHPC_PATH/cuda ndims=3 nprof=1
+    - name: make 2d GPU
+      run: make cleanall; make ndims=2 openacc=1
+    - name: make 3d GPU
+      run: make cleanall; make ndims=3 openacc=1
+    - name: make 2d GPU with nvidia profiling tools
+      run: make clean; make CUDA_DIR=$NVHPC_PATH/cuda ndims=2 nprof=1 openacc=1
+    - name: make 3d GPU with nvidia profiling tools
+      run: make clean; make CUDA_DIR=$NVHPC_PATH/cuda ndims=3 nprof=1 openacc=1
+      

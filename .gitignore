@@ -22,3 +22,4 @@ tetgen/tetgen
 triangle/triangle
 .vscode
 *.code-workspace
+*.qdrep

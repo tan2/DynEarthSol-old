@@ -1,3 +1,6 @@
+#ifdef USE_NPROF
+#include <nvToolsExt.h> 
+#endif
 #include <algorithm>
 #include <cstring>
 #include <functional>
@@ -912,6 +915,9 @@ void new_mesh(const Param &param, Variables &var, int bad_quality,
               const array_t &original_coord, const conn_t &original_connectivity,
               const segment_t &original_segment, const segflag_t &original_segflag)
 {
+#ifdef USE_NPROF
+    nvtxRangePush(__FUNCTION__);
+#endif
     int_vec bdry_polygons[nbdrytypes];
     assemble_bdry_polygons(var, original_coord, original_connectivity, bdry_polygons);
 
@@ -1105,6 +1111,9 @@ void new_mesh(const Param &param, Variables &var, int bad_quality,
     var.connectivity->reset(pconnectivity, new_nelem);
     var.segment->reset(psegment, var.nseg);
     var.segflag->reset(psegflag, var.nseg);
+#ifdef USE_NPROF
+    nvtxRangePop();
+#endif
 }
 
 void compute_metric_field(const Variables &var, const conn_t &connectivity, const double resolution0, double_vec &metric, double_vec &tmp_result_sg)
@@ -1138,6 +1147,9 @@ void optimize_mesh(const Param &param, Variables &var, int bad_quality,
               const array_t &original_coord, const conn_t &original_connectivity,
               const segment_t &original_segment, const segflag_t &original_segflag)
 {
+#ifdef USE_NPROF
+    nvtxRangePush(__FUNCTION__);
+#endif
     // We don't want to refine large elements during remeshing,
     // so using negative size as the max area
     const double max_elem_size = -1;
@@ -1375,6 +1387,9 @@ void optimize_mesh(const Param &param, Variables &var, int bad_quality,
     std::cerr << "MMG3D freed." <<std::endl;
 
     std::cerr << "\nMesh optimization done" <<std::endl;
+#ifdef USE_NPROF
+    nvtxRangePop();
+#endif
 }
 
 #else
@@ -1383,6 +1398,9 @@ void optimize_mesh_2d(const Param &param, Variables &var, int bad_quality,
               const array_t &original_coord, const conn_t &original_connectivity,
               const segment_t &original_segment, const segflag_t &original_segflag)
 {
+#ifdef USE_NPROF
+    nvtxRangePush(__FUNCTION__);
+#endif
     // We don't want to refine large elements during remeshing,
     // so using negative size as the max area
     const double max_elem_size = -1;
@@ -1617,6 +1635,9 @@ void optimize_mesh_2d(const Param &param, Variables &var, int bad_quality,
     std::cerr << "MMG2D freed." <<std::endl;
 
     std::cerr << "\nMesh optimization done" <<std::endl;
+#ifdef USE_NPROF
+    nvtxRangePop();
+#endif
 }
 #endif  // end of if THREED
 #endif // end of if USEMMG
@@ -1626,6 +1647,9 @@ void optimize_mesh(const Param &param, Variables &var, int bad_quality,
               const array_t &original_coord, const conn_t &original_connectivity,
               const segment_t &original_segment, const segflag_t &original_segflag)
 {
+#ifdef USE_NPROF
+    nvtxRangePush(__FUNCTION__);
+#endif
     // We don't want to refine large elements during remeshing,
     // so using negative size as the max area
     const double max_elem_size = -1;
@@ -1857,6 +1881,9 @@ void optimize_mesh(const Param &param, Variables &var, int bad_quality,
     var.segment->steal_ref( new_segment );
     var.segflag->steal_ref( new_segflag );
     std::cerr << "Arrays transferred. Mesh optimization done \n";
+#ifdef USE_NPROF
+    nvtxRangePop();
+#endif
 }
 #endif
 
@@ -1865,6 +1892,9 @@ void optimize_mesh(const Param &param, Variables &var, int bad_quality,
 
 int bad_mesh_quality(const Param &param, const Variables &var, int &index)
 {
+#ifdef USE_NPROF
+    nvtxRangePush(__FUNCTION__);
+#endif
     /* Check the quality of the mesh, return 0 if the mesh quality (by several
      * measures) is good. Non-zero returned values indicate --
      * 1: an element has bad quality (too acute / narrow / flat).
@@ -1879,6 +1909,9 @@ int bad_mesh_quality(const Param &param, const Variables &var, int &index)
         if ((*var.volume)[e] < smallest_vol) {
             index = e;
             std::cout << "    The size of element #" << index << " is too small.\n";
+#ifdef USE_NPROF
+            nvtxRangePop();
+#endif
             return 3;
         }
     }
@@ -1895,6 +1928,9 @@ int bad_mesh_quality(const Param &param, const Variables &var, int &index)
                 if (std::fabs(z - bottom) > dist) {
                     index = i;
                     std::cout << "    Node #" << i << " is too far from the bottm: z = " << z << "\n";
+#ifdef USE_NPROF
+                    nvtxRangePop();
+#endif
                     return 2;
                 }
             }
@@ -1912,14 +1948,23 @@ int bad_mesh_quality(const Param &param, const Variables &var, int &index)
     if (q < param.mesh.min_quality) {
         index = worst_elem;
         std::cout << "    Element #" << worst_elem << " has mesh quality = " << q << ".\n";
+#ifdef USE_NPROF
+        nvtxRangePop();
+#endif
         return 1;
     }
+#ifdef USE_NPROF
+    nvtxRangePop();
+#endif
     return 0;
 }
 
 
 void remesh(const Param &param, Variables &var, int bad_quality)
 {
+#ifdef USE_NPROF
+    nvtxRangePush(__FUNCTION__);
+#endif
     std::cout << "  Remeshing starts...\n";
 
     {
@@ -2016,6 +2061,9 @@ void remesh(const Param &param, Variables &var, int bad_quality)
     }
 
     std::cout << "  Remeshing finished.\n";
+#ifdef USE_NPROF
+    nvtxRangePop();
+#endif
 }
 
 
